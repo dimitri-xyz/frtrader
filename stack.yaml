@@ -1,0 +1,28 @@
+flags: {}
+extra-package-dbs: []
+packages:
+- '.'
+- 'dep/market-model'
+- 'dep/bitcoin-type'
+- 'dep/gdax-adapter'
+- 'dep/gdax-producer'
+- 'dep/gdax-executor'
+
+# apparently, I can't specify a commit for an extra-dep
+# I have to make it local and turn the flag on
+- location:
+    git: https://github.com/dimitri-xyz/coinbase
+    # Turn OFF debugging
+    commit: bf874351ea751fe80c5f7b754ac36139e49dc581
+  extra-dep: true
+
+- location:
+    git: https://github.com/dimitri-xyz/stego-uuid
+    commit: 273bdd6d83f146d627ed5499f7bb34cf12be32ec
+  extra-dep: true
+
+extra-deps:
+- reactive-banana-1.1.0.1
+- Crypto-4.2.5.1
+- uuid-aeson-0.1.0.0
+resolver: lts-8.3

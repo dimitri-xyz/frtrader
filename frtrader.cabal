@@ -1,0 +1,61 @@
+name:                FRTrader
+version:             0.1.0.0
+synopsis:            A Functional Reactive Bitcoin Trader
+description:         Please see README.md
+homepage:            https://github.com/dimitri-xyz/frtrader#readme
+author:              Dimitri DeFigueiredo
+maintainer:          defigueiredo@ucdavis.edu
+copyright:           2017 Dimitri DeFigueiredo
+category:            finance
+build-type:          Simple
+extra-source-files:  README.md
+extra-doc-files:     doc/frbtrading.lyx
+cabal-version:       >=1.20
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     TradingFramework
+  default-language:    Haskell2010
+  build-depends:       base
+                     , async
+                     , pipes-concurrency
+                     , reactive-banana >= 1.1.0.1
+                     , market-model
+
+executable frt
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+  build-depends:       base
+                     , async
+                     , pipes-concurrency
+                     , reactive-banana >= 1.1.0.1
+                     , FRTrader
+                     , market-model
+                     , gdax-producer
+                     , gdax-executor
+                     , gdax-adapter
+                     , pipes
+
+test-suite test-FRTrader
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Test.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+  build-depends:       base
+                     , async
+                     , pipes-concurrency
+                     , reactive-banana >= 1.1.0.1
+                     , FRTrader
+                     , tasty
+                     , tasty-hunit
+                     , stm
+                     , market-model
+                     , gdax-producer
+                     , gdax-adapter
+
+source-repository head
+  type:     git
+  location: https://github.com/dimitri-xyz/frtrader
