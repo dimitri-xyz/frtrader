@@ -18,7 +18,7 @@ packages:
 
 - location:
     git: https://github.com/dimitri-xyz/stego-uuid
-    commit: 273bdd6d83f146d627ed5499f7bb34cf12be32ec
+    commit: 908807fc58c4ba57a14258cbf3faf1a80909dd12
   extra-dep: true
 
 extra-deps:
