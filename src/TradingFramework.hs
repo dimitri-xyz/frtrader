@@ -13,6 +13,7 @@ import Reactive.Banana.Frameworks
 import MarketTypes
 import MarketBasics
 import Util
+import Combinator
 
 -- changing the names to better match the semantics
 type HandlerSet = AddHandler
@@ -112,18 +113,6 @@ onAny eNewBook eNewPlacement eNewCancels eNewFills =
                 (unionWith const eF eC)
                 (unionWith const eP eB)
    in eAny
-
--- | Outputs input value only once, upon the first event seen.
-once :: a -> Event b -> MomentIO (Event a)
-once val event = do
-  e1 <- headE event
-  return (const val <$> e1)
-
--- | Outputs only the first ocurrence of the event.
-headE :: MonadMoment m => Event a -> m (Event a)
-headE event = do
-  notDoneYet <- stepper True (const False <$> event)
-  return $ whenE notDoneYet event
 
 -- | Issue cancellation for any limit order seen.
 cancelLimitOrders :: Event OrderPlacement -> Event StrategyAdvice
