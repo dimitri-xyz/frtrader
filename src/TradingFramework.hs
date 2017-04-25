@@ -116,12 +116,12 @@ onAny eNewBook eNewPlacement eNewCancels eNewFills =
 -- | Outputs input value only once, upon the first event seen.
 once :: a -> Event b -> MomentIO (Event a)
 once val event = do
-  e1 <- first event
+  e1 <- headE event
   return (const val <$> e1)
 
--- | Outputs only the first ocurrence of the event. Similar to `head`.
-first :: MonadMoment m => Event a -> m (Event a)
-first event = do
+-- | Outputs only the first ocurrence of the event.
+headE :: MonadMoment m => Event a -> m (Event a)
+headE event = do
   notDoneYet <- stepper True (const False <$> event)
   return $ whenE notDoneYet event
 
