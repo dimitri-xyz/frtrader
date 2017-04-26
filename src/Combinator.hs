@@ -15,3 +15,9 @@ once :: MonadMoment m => a -> Event b -> m (Event a)
 once val event = do
   e1 <- headE event
   return (const val <$> e1)
+
+-- | This behaves like `scanl` does for lists.
+-- In order words, this is a `foldl` that also outputs all intermediate results.
+scanlE :: MonadMoment m => Behavior (b -> a -> b) -> b -> Event a -> m (Event b)
+scanlE f z es = accumE z (f' <@> es)
+  where f' = flip <$> f
