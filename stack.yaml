@@ -8,11 +8,8 @@ packages:
 - 'dep/gdax-producer'
 - 'dep/gdax-executor'
 
-# apparently, I can't specify a commit for an extra-dep
-# I have to make it local and turn the flag on
 - location:
     git: https://github.com/dimitri-xyz/coinbase
-    # Turn OFF debugging
     commit: bf874351ea751fe80c5f7b754ac36139e49dc581
   extra-dep: true
 
