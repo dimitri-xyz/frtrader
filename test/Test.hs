@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Main where
 
 import Reactive.Banana
@@ -11,29 +13,34 @@ import Control.Concurrent.STM
 import Control.Concurrent.Async
 
 import TradingFramework
-import MarketTypes
+import Market.Types
 
 import GDAXProducer
 
 --------------------------------------------------------------------------------
 main :: IO ()
-main = defaultMain tests
+main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
 --------------------------------------------------------------------------------
 
-tests :: TestTree
-tests = testGroup " Trading Framework Tests"
+tests :: forall p v. (Coin p, Coin v) => Price p -> Vol v -> TestTree
+tests _ _ = testGroup " Trading Framework Tests"
   [ testCase "Output list comparison test"
         (listComparisonTest cancelAllLimitOrders
-         [Left (QuoteBook {}), Right (Placement limOrder), Left (QuoteBook {}), Right (Placement (MarketOrder {}))]
+         [ Left  (QuoteBook {})
+         , Right (Placement limOrder :: OrderPlacement p v)
+         , Left  (QuoteBook {})
+         , Right (Placement (MarketOrder {}))]
+          -- expected output
          [ToDo [CancelLimitOrder {acOrderID = OID 333 444}] reasonMessage])
+
   , testCase "Output execution list comparison test"
         (executionTest
-          (repeatEveryBookEvent
-                [ PANIC "1"
-                , CancelLimitOrder {acOrderID = OID 333 444}
-                , PANIC "2"]
-                "repeat twice")
-          [ Left (QuoteBook {} :: GDAXQuotebook), Left (QuoteBook {})]
+          (repeatOnEveryBookEvent
+                [ PANIC "1", CancelLimitOrder {acOrderID = OID 333 444}, PANIC "2"]
+                "")
+          -- repeat twice, once for each book event
+          [ Left (QuoteBook {} :: GDAXQuotebook p v), Left (QuoteBook {})]
+          -- expected output
           [ PANIC "1"
           , CancelLimitOrder {acOrderID = OID {hw = 333, lw = 444}}
           , PANIC "2"
@@ -42,23 +49,10 @@ tests = testGroup " Trading Framework Tests"
           , PANIC "2"])
   ]
 
+--------------------------------------------------------------------------------
 reasonMessage = "Canceling placed limit order: CancelLimitOrder {acOrderID = OID {hw = 333, lw = 444}}\n"
-----------------------------------------
-repeatEveryBookEvent :: Show b
-         => [Action]
-         -> Reasoning
-         -> Event (QuoteBook a b)
-         -> Event c
-         -> Event d
-         -> Event e
-         -> (Event StrategyAdvice -> MomentIO ())
-         -> MomentIO ()
-repeatEveryBookEvent actions reason eNewBook _ _ _ runOnOutputEvents = do
-  let eAdvice = (\_ -> ToDo actions reason) <$> eNewBook
-  runOnOutputEvents eAdvice
-----------------------------------------
 
-limOrder :: Order Confirmation
+limOrder :: Order p v (Confirmation p v)
 limOrder = LimitOrder
   { oSide          = undefined
   , limitPrice     = undefined
@@ -66,7 +60,7 @@ limOrder = LimitOrder
   , aConfirmation  = confirm
   }
 
-confirm :: Confirmation
+confirm :: Confirmation p v
 confirm = Conf
   { orderID      = OID 333 444
   , mTimestamp   = undefined
@@ -81,7 +75,8 @@ listComparisonTest :: (Eq output, Show output)
                       -> Event inputC
                       -> Event inputD
                       -> (Event output -> MomentIO ())
-                      -> MomentIO ())
+                      -> MomentIO ()
+                      )
                    -> [Either inputA inputB]
                    -> [output]
                    -> IO ()
@@ -120,14 +115,15 @@ accumIntoListEvents :: MonadMoment m => Event a -> m (Event [a])
 accumIntoListEvents event = accumE [] (fmap (:) event)
 --------------------------------------------------------------------------------
 
-executionTest :: (  Event inputA
+executionTest :: (Coin p, Coin v)
+              => (  Event inputA
                  -> Event inputB
                  -> Event inputC
                  -> Event inputD
-                 -> (Event StrategyAdvice -> MomentIO ())
+                 -> (Event (StrategyAdvice p v) -> MomentIO ())
                  -> MomentIO ())
               -> [Either inputA inputB]
-              -> [Action]
+              -> [Action p v]
               -> IO ()
 
 executionTest networkDescription inputs expecteds = do
@@ -164,5 +160,19 @@ executionTest networkDescription inputs expecteds = do
 
 
   where
-    prependAction :: TVar [Action] -> Action -> IO ()
+    prependAction :: TVar [Action p v] -> Action p v-> IO ()
     prependAction tv action = atomically $ modifyTVar tv (\as -> action:as)
+
+----------------------------------------
+repeatOnEveryBookEvent :: Show b
+         => [Action p v]
+         -> Reasoning
+         -> Event (QuoteBook p v a b)
+         -> Event c
+         -> Event d
+         -> Event e
+         -> (Event (StrategyAdvice p v) -> MomentIO ())
+         -> MomentIO ()
+repeatOnEveryBookEvent actions reason eNewBook _ _ _ runOnOutputEvents = do
+  let eAdvice = (\_ -> ToDo actions reason) <$> eNewBook
+  runOnOutputEvents eAdvice

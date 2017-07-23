@@ -2,7 +2,7 @@
 
 module TradingFramework where
 
-import System.IO                (hPutStr, stderr)
+import System.IO                (hPutStr, hPutStrLn, stderr)
 import Control.Exception.Base   (finally)
 
 import Pipes.Concurrent
@@ -10,9 +10,9 @@ import Pipes.Concurrent
 import Reactive.Banana
 import Reactive.Banana.Frameworks
 
-import MarketTypes
-import MarketBasics
-import Util
+import Market.Types
+import Market.Util
+import Razao.Util
 import Combinator
 
 -- changing the names to better match the semantics
@@ -24,19 +24,19 @@ activate        = actuate
 --------------------------------------------------------------------------------
 --                      FRAMEWORK HELPER FUNCTIONS
 --------------------------------------------------------------------------------
-showReasoning :: StrategyAdvice -> IO ()
+showReasoning :: StrategyAdvice p v -> IO ()
 showReasoning (ToDo _ reasons) = putStrLn reasons
 
-logAndExecute :: Output Action -> StrategyAdvice -> IO ()
+logAndExecute :: Output (Action p v) -> StrategyAdvice p v -> IO ()
 logAndExecute output (ToDo actions reasons) = do
   hPutStr stderr reasons -- reasons must explicitly include '\n' if desired.
   sequence_ $ (atomically . send output) <$> actions
 
-runExecutor :: Handler Action -> Input Action -> IO ()
+runExecutor :: Handler (Action p v) -> Input (Action p v) -> IO ()
 runExecutor executor inputQueue =
   whileJustThenFinally_
     (atomically $ recv inputQueue)
-    (putStrLn "Executor exiting!")
+    (hPutStrLn stderr "\nExecutor exiting!")
     executor
 
 -- `finally` forces us to stick to the IO monad here when it really should be more general
@@ -53,12 +53,12 @@ whileJustThenFinally_ p endAction loopAction = finally go endAction
 --------------------------------------------------------------------------------
 --                     SIMPLE TRADING STRATEGIES
 --------------------------------------------------------------------------------
-showBook :: Show counter
-         => MomentIO (Event (QuoteBook qtail counter))
+showBook :: (Coin p, Coin v, Show counter)
+         => MomentIO (Event (QuoteBook p v qtail counter))
          -> b
          -> c
          -> d
-         -> (Event StrategyAdvice -> MomentIO ())
+         -> (Event (StrategyAdvice p v) -> MomentIO ())
          -> MomentIO ()
 showBook newBooks _ _ _ runOnOutputEvents = mdo
   eNewBook <- newBooks
@@ -67,22 +67,23 @@ showBook newBooks _ _ _ runOnOutputEvents = mdo
     toAdvice = \book -> ToDo [] (backtrackCursor $ showTopN 3 book)
 
 --------------------------------------------------------------------------------
-cancelAllLimitOrders :: a
-                     -> Event OrderPlacement
+cancelAllLimitOrders :: (Coin p, Coin v)
+                     => a
+                     -> Event (OrderPlacement p v)
                      -> c
                      -> d
-                     -> (Event StrategyAdvice -> MomentIO ())
+                     -> (Event (StrategyAdvice p v) -> MomentIO ())
                      -> MomentIO ()
 cancelAllLimitOrders _ ePlaced _ _ runOnOutputEvents = runOnOutputEvents (cancelLimitOrders ePlaced)
 
 --------------------------------------------------------------------------------
 -- | Places an order and then cancels it. Detects cancellation.
-dumbStrategy :: Show b
-             => Event (QuoteBook a b)
-             -> Event OrderPlacement
-             -> Event OrderCancellation
-             -> Event OrderFill
-             -> (Event StrategyAdvice -> MomentIO ())
+dumbStrategy :: (Coin p, Coin v, Show b)
+             => Event (QuoteBook p v a b)
+             -> Event (OrderPlacement    p v)
+             -> Event (OrderCancellation    )
+             -> Event (OrderFill         p v)
+             -> (Event (StrategyAdvice p v) -> MomentIO ())
              -> MomentIO ()
 dumbStrategy eBooks ePlaced eCanceled eFills outputEvents = mdo
   let eAny         = onAny eBooks ePlaced eCanceled eFills
@@ -99,10 +100,10 @@ dumbStrategy eBooks ePlaced eCanceled eFills outputEvents = mdo
 --------------------------------------------------------------------------------
 
 onAny :: Show b
-       => Event (QuoteBook a b)
-       -> Event OrderPlacement
-       -> Event OrderCancellation
-       -> Event OrderFill
+       => Event (QuoteBook p v a b)
+       -> Event (OrderPlacement    p v)
+       -> Event (OrderCancellation    )
+       -> Event (OrderFill         p v)
        -> Event ()
 onAny eNewBook eNewPlacement eNewCancels eNewFills =
   let eB = const () <$> eNewBook
@@ -115,7 +116,7 @@ onAny eNewBook eNewPlacement eNewCancels eNewFills =
    in eAny
 
 -- | Issue cancellation for any limit order seen.
-cancelLimitOrders :: Event OrderPlacement -> Event StrategyAdvice
+cancelLimitOrders :: (Coin p, Coin v) => Event (OrderPlacement p v) -> Event (StrategyAdvice p v)
 cancelLimitOrders ePlaced =
   let getOrd (Placement o) = o
       toAdvice a = ToDo [a] ("Canceling placed limit order: " ++ show a ++ "\n")

@@ -10,12 +10,17 @@ packages:
 
 - location:
     git: https://github.com/dimitri-xyz/coinbase
-    commit: bf874351ea751fe80c5f7b754ac36139e49dc581
+    commit: c8fdb479b87160b16fd4692eb541b968edaaa8d3
   extra-dep: true
 
 - location:
     git: https://github.com/dimitri-xyz/stego-uuid
-    commit: 908807fc58c4ba57a14258cbf3faf1a80909dd12
+    commit: 47f6bfa4660f6bee73581c71bce51dc09cf02a5c
+  extra-dep: true
+
+- location:
+    git: https://github.com/dimitri-xyz/razao-base
+    commit: e75322f1f1b4f477d36ca39b9cab8d4a78e86eee
   extra-dep: true
 
 extra-deps:

@@ -3,10 +3,11 @@ module Main where
 import Control.Concurrent           (threadDelay)
 import Control.Concurrent.Async
 
+import Reactive.Banana
 import Reactive.Banana.Frameworks
 import Pipes.Concurrent
 
-import MarketTypes
+import Market.Types
 import GDAXProducer
 import GDAXAdapter
 import GDAXExecutor
@@ -45,7 +46,7 @@ main = do
       place  <- fromHandlerSet placeHandlers
       cancel <- fromHandlerSet cancelHandlers
       fill   <- fromHandlerSet fillHandlers
-      dumbStrategy book place cancel fill (reactimate . fmap (logAndExecute output))
+      dumbStrategy book (place :: Event (OrderPlacement BTC LTC)) cancel fill (reactimate . fmap (logAndExecute output))
 
   -- start sensory threads
   fromMarketStream gdaxConfig fireBook firePlaced fireCanceled fireFilled

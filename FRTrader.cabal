@@ -22,6 +22,7 @@ library
                      , pipes-concurrency
                      , reactive-banana >= 1.1.0.1
                      , market-model
+                     , razao-base
 
 executable frt
   hs-source-dirs:      app
