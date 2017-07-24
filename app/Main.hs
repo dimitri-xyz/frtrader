@@ -34,19 +34,19 @@ main = do
   putStrLn "---------------------------------------------------------------------"
 
   -- event dispatch handlers
-  (bookHandlers,   fireBook  )   <- newHandlerSet
   (placeHandlers,  firePlaced)   <- newHandlerSet
   (cancelHandlers, fireCanceled) <- newHandlerSet
   (fillHandlers,   fireFilled)   <- newHandlerSet
+  (bookHandlers,   fireBook  )   <- newHandlerSet
   -- execution FIFO queue
   (output, input, stopExecutor) <- spawn' unbounded
 
   network <- compile $ do
-      book   <- fromHandlerSet bookHandlers
       place  <- fromHandlerSet placeHandlers
       cancel <- fromHandlerSet cancelHandlers
       fill   <- fromHandlerSet fillHandlers
-      dumbStrategy book (place :: Event (OrderPlacement BTC LTC)) cancel fill (reactimate . fmap (logAndExecute output))
+      book   <- fromHandlerSet bookHandlers
+      dumbStrategy (place :: Event (OrderPlacement BTC LTC)) cancel fill book (reactimate . fmap (logAndExecute output))
 
   -- start sensory threads
   fromMarketStream gdaxConfig fireBook firePlaced fireCanceled fireFilled

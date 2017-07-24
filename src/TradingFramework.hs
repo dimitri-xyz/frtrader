@@ -54,39 +54,39 @@ whileJustThenFinally_ p endAction loopAction = finally go endAction
 --                     SIMPLE TRADING STRATEGIES
 --------------------------------------------------------------------------------
 showBook :: (Coin p, Coin v, Show counter)
-         => MomentIO (Event (QuoteBook p v qtail counter))
-         -> b
-         -> c
-         -> d
+         => place
+         -> cancel
+         -> fill
+         -> MomentIO (Event (QuoteBook p v qtail counter))
          -> (Event (StrategyAdvice p v) -> MomentIO ())
          -> MomentIO ()
-showBook newBooks _ _ _ runOnOutputEvents = mdo
-  eNewBook <- newBooks
-  runOnOutputEvents (toAdvice <$> eNewBook)
+showBook _ _ _ newBooks runOnOutputEvents = mdo
+    eNewBook <- newBooks
+    runOnOutputEvents (toAdvice <$> eNewBook)
   where
     toAdvice = \book -> ToDo [] (backtrackCursor $ showTopN 3 book)
 
 --------------------------------------------------------------------------------
 cancelAllLimitOrders :: (Coin p, Coin v)
-                     => a
-                     -> Event (OrderPlacement p v)
-                     -> c
-                     -> d
+                     => Event (OrderPlacement p v)
+                     -> cancel
+                     -> fill
+                     -> book
                      -> (Event (StrategyAdvice p v) -> MomentIO ())
                      -> MomentIO ()
-cancelAllLimitOrders _ ePlaced _ _ runOnOutputEvents = runOnOutputEvents (cancelLimitOrders ePlaced)
+cancelAllLimitOrders ePlaced _ _ _ runOnOutputEvents = runOnOutputEvents (cancelLimitOrders ePlaced)
 
 --------------------------------------------------------------------------------
 -- | Places an order and then cancels it. Detects cancellation.
-dumbStrategy :: (Coin p, Coin v, Show b)
-             => Event (QuoteBook p v a b)
-             -> Event (OrderPlacement    p v)
+dumbStrategy :: (Coin p, Coin v)
+             => Event (OrderPlacement    p v)
              -> Event (OrderCancellation    )
              -> Event (OrderFill         p v)
+             -> Event (QuoteBook         p v q c)
              -> (Event (StrategyAdvice p v) -> MomentIO ())
              -> MomentIO ()
-dumbStrategy eBooks ePlaced eCanceled eFills outputEvents = mdo
-  let eAny         = onAny eBooks ePlaced eCanceled eFills
+dumbStrategy ePlaced eCanceled eFills eBooks outputEvents = mdo
+  let eAny         = onAny ePlaced eCanceled eFills eBooks
       forceCancel  = cancelLimitOrders ePlaced
       noticeCancel = const (ToDo [] "Detected cancellation!\n") <$> eCanceled
 
@@ -99,11 +99,11 @@ dumbStrategy eBooks ePlaced eCanceled eFills outputEvents = mdo
 --                            COMBINATORS
 --------------------------------------------------------------------------------
 
-onAny :: Show b
-       => Event (QuoteBook p v a b)
-       -> Event (OrderPlacement    p v)
+onAny :: (Coin p, Coin v)
+       => Event (OrderPlacement    p v)
        -> Event (OrderCancellation    )
        -> Event (OrderFill         p v)
+       -> Event (QuoteBook         p v q c)
        -> Event ()
 onAny eNewBook eNewPlacement eNewCancels eNewFills =
   let eB = const () <$> eNewBook
