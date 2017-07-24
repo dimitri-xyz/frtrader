@@ -50,6 +50,32 @@ whileJustThenFinally_ p endAction loopAction = finally go endAction
               loopAction x
               go
 
+splitEvents
+    :: Event (TradingE p v q c)
+    -> ( Event (OrderPlacement    p v)
+       , Event (OrderCancellation    )
+       , Event (OrderFill         p v)
+       , Event (QuoteBook         p v q c)
+       )
+splitEvents es =
+       ( toPlace  <$> filterE isPlace  es
+       , toCancel <$> filterE isCancel es
+       , toFill   <$> filterE isFill   es
+       , toBook   <$> filterE isBook   es
+       )
+  where
+    isPlace TP{}  = True
+    isPlace _     = False
+
+    isCancel TC{} = True
+    isCancel _    = False
+
+    isFill TF{}   = True
+    isFill _      = False
+
+    isBook TB{}   = True
+    isBook _      = False
+
 --------------------------------------------------------------------------------
 --                     SIMPLE TRADING STRATEGIES
 --------------------------------------------------------------------------------
@@ -67,14 +93,14 @@ showBook _ _ _ newBooks runOnOutputEvents = mdo
     toAdvice = \book -> ToDo [] (backtrackCursor $ showTopN 3 book)
 
 --------------------------------------------------------------------------------
-cancelAllLimitOrders :: (Coin p, Coin v)
-                     => Event (OrderPlacement p v)
-                     -> cancel
-                     -> fill
-                     -> book
-                     -> (Event (StrategyAdvice p v) -> MomentIO ())
-                     -> MomentIO ()
-cancelAllLimitOrders ePlaced _ _ _ runOnOutputEvents = runOnOutputEvents (cancelLimitOrders ePlaced)
+cancelAllLimitOrders
+    :: (Coin p, Coin v)
+    => Event (TradingE p v q c)
+    -> (Event (StrategyAdvice p v) -> MomentIO ())
+    -> MomentIO ()
+cancelAllLimitOrders es runOnOutputEvents =
+  let (ep, _, _, _) = splitEvents es
+   in runOnOutputEvents (cancelLimitOrders ep)
 
 --------------------------------------------------------------------------------
 -- | Places an order and then cancels it. Detects cancellation.

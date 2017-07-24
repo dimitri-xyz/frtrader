@@ -59,10 +59,7 @@ confirm = Conf
 --------------------------------------------------------------------------------
 compareOutputTest
     :: forall p v q c output. (Eq output, Show output)
-    => (   Event (OrderPlacement    p v)
-        -> Event (OrderCancellation    )
-        -> Event (OrderFill         p v)
-        -> Event (QuoteBook         p v q c)
+    => ( Event (TradingE p v q c)
         -> (Event output -> MomentIO ())
         -> MomentIO ()
        )
@@ -71,30 +68,17 @@ compareOutputTest
     -> IO ()
 
 compareOutputTest networkDescription inputs expecteds = do
-    (inputAHandlers, fireInputA) <- newHandlerSet
-    (inputBHandlers, fireInputB) <- newHandlerSet
-    (inputCHandlers, fireInputC) <- newHandlerSet
-    (inputDHandlers, fireInputD) <- newHandlerSet
+    (inputHandlers, fireInput) <- newHandlerSet
     -- create TVAR to hold final list of output events
     tv <- newTVarIO []
 
     network <- compile $ do
-        eA <- fromHandlerSet inputAHandlers
-        eB <- fromHandlerSet inputBHandlers
-        eC <- fromHandlerSet inputCHandlers
-        eD <- fromHandlerSet inputDHandlers
-        networkDescription eA eB eC eD
-          (\e -> accumIntoListEvents e >>= logLastEventInTVar tv)
+        es <- fromHandlerSet inputHandlers
+        networkDescription es (\e -> accumIntoListEvents e >>= logLastEventInTVar tv)
 
     activate network
 
-    let triggerIO :: TradingE p v q c -> IO()
-        triggerIO (TP inputA) = fireInputA inputA
-        triggerIO (TC inputB) = fireInputB inputB
-        triggerIO (TF inputC) = fireInputC inputC
-        triggerIO (TB inputD) = fireInputD inputD
-
-    sequence_ $ fmap triggerIO inputs
+    sequence_ $ fmap fireInput inputs
     outputEvents <- readTVarIO tv
     assertEqual "Output list does not match" expecteds (reverse outputEvents)
 
