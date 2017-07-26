@@ -104,17 +104,16 @@ cancelAllLimitOrders es runOnOutputEvents =
 
 --------------------------------------------------------------------------------
 -- | Places an order and then cancels it. Detects cancellation.
-dumbStrategy :: (Coin p, Coin v)
-             => Event (OrderPlacement    p v)
-             -> Event (OrderCancellation    )
-             -> Event (OrderFill         p v)
-             -> Event (QuoteBook         p v q c)
-             -> (Event (StrategyAdvice p v) -> MomentIO ())
-             -> MomentIO ()
-dumbStrategy ePlaced eCanceled eFills eBooks outputEvents = mdo
-  let eAny         = onAny ePlaced eCanceled eFills eBooks
-      forceCancel  = cancelLimitOrders ePlaced
-      noticeCancel = const (ToDo [] "Detected cancellation!\n") <$> eCanceled
+dumbStrategy
+    :: (Coin p, Coin v)
+    => Event (TradingE p v q c)
+    -> (Event (StrategyAdvice p v) -> MomentIO ())
+    -> MomentIO ()
+dumbStrategy es outputEvents = mdo
+  let eAny           = const () <$> es
+      (eP, eC, _, _) = splitEvents  es
+      forceCancel    = cancelLimitOrders eP
+      noticeCancel   = const (ToDo [] "Detected cancellation!\n") <$> eC
 
   placeOrder <- once (ToDo [NewLimitOrder Ask 99555 0.01] "Placing an ask!\n") eAny
 
