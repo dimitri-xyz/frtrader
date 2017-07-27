@@ -34,31 +34,54 @@ main = do
   putStrLn "---------------------------------------------------------------------"
 
   -- event dispatch handlers
-  (handlers, fire) <- newHandlerSet
-  -- execution FIFO queue
-  (output, input, stopExecutor) <- spawn' unbounded
+  (handlersUSDBTC, fireUSDBTC) <- newHandlerSet
+  (handlersUSDLTC, fireUSDLTC) <- newHandlerSet
+  (handlersBTCLTC, fireBTCLTC) <- newHandlerSet
+  -- execution FIFO queues
+  (outputUSDBTC, inputUSDBTC, stopExecutorUSDBTC) <- spawn' unbounded
+  (outputUSDLTC, inputUSDLTC, stopExecutorUSDLTC) <- spawn' unbounded
+  (outputBTCLTC, inputBTCLTC, stopExecutorBTCLTC) <- spawn' unbounded
 
   network <- compile $ do
-      es  <- fromHandlerSet handlers
-      dumbStrategy (es :: Event (GDAXTradingE BTC LTC)) (reactimate . fmap (logAndExecute output))
+      esUSDBTC  <- fromHandlerSet handlersUSDBTC
+      esUSDLTC  <- fromHandlerSet handlersUSDLTC
+      esBTCLTC  <- fromHandlerSet handlersBTCLTC
+
+      showAllBooks
+          (esUSDBTC :: Event (GDAXTradingE USD BTC))
+          (esUSDLTC :: Event (GDAXTradingE USD LTC))
+          (esBTCLTC :: Event (GDAXTradingE BTC LTC))
+          (reactimate . fmap (logAndExecute outputUSDBTC))
+          (reactimate . fmap (logAndExecute outputUSDLTC))
+          (reactimate . fmap (logAndExecute outputBTCLTC))
 
   -- start sensory threads
-  fromMarketStream gdaxConfig (fire . TB) (fire . TP) (fire . TC) (fire . TF)
+  fromMarketStream gdaxConfig (fireUSDBTC . TB) (fireUSDBTC . TP) (fireUSDBTC . TC) (fireUSDBTC . TF)
+  fromMarketStream gdaxConfig (fireUSDLTC . TB) (fireUSDLTC . TP) (fireUSDLTC . TC) (fireUSDLTC . TF)
+  fromMarketStream gdaxConfig (fireBTCLTC . TB) (fireBTCLTC . TP) (fireBTCLTC . TC) (fireBTCLTC . TF)
 
-  -- start execution thread
-  exec <- async $ runExecutor (doAtGDAX gdaxConfig) input
-  link exec
+  -- start execution threads
+  execUSDBTC <- async $ runExecutor (doAtGDAX gdaxConfig) inputUSDBTC
+  link execUSDBTC
+
+  execUSDLTC <- async $ runExecutor (doAtGDAX gdaxConfig) inputUSDLTC
+  link execUSDLTC
+
+  execBTCLTC <- async $ runExecutor (doAtGDAX gdaxConfig) inputBTCLTC
+  link execBTCLTC
 
   -- run until users presses <ENTER> key
   activate network
   keyboardWait
 
   -- Shutdown
-  -- 30 seconds timeout for executor to finish its job before terminating
-  atomically stopExecutor
+  -- 30 seconds timeout for executors to finish their job before terminating
+  atomically stopExecutorUSDBTC
+  atomically stopExecutorUSDLTC
+  atomically stopExecutorBTCLTC
   race_
     (threadDelay (30 * 1000000))
-    (wait exec)
+    (mapConcurrently_ wait [execUSDBTC, execUSDLTC, execBTCLTC])
 
 
 --------------------------------------------------------------------------------

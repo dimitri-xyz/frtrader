@@ -93,6 +93,38 @@ showBook _ _ _ newBooks runOnOutputEvents = mdo
     toAdvice = \book -> ToDo [] (backtrackCursor $ showTopN 3 book)
 
 --------------------------------------------------------------------------------
+showAllBooks
+    :: ( Coin p1, Coin v1, Show c1, Num c1
+       , Coin p2, Coin v2, Show c2, Num c2
+       , Coin p3, Coin v3, Show c3, Num c3)
+    =>  Event (TradingE p1 v1 q1 c1)
+    ->  Event (TradingE p2 v2 q2 c2)
+    ->  Event (TradingE p3 v3 q3 c3)
+    -> (Event (StrategyAdvice p1 v1) -> MomentIO ())
+    -> (Event (StrategyAdvice p2 v2) -> MomentIO ())
+    -> (Event (StrategyAdvice p3 v3) -> MomentIO ())
+    -> MomentIO ()
+showAllBooks e1s e2s e3s runOnE1 runOnE2 runOnE3 = do
+    let (_, _, _, eb1s) = splitEvents e1s
+        (_, _, _, eb2s) = splitEvents e2s
+        (_, _, _, eb3s) = splitEvents e3s
+
+    b1 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb1s)
+    b2 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb2s)
+
+    runOnE3 (toAdvice <$> b1 <*> b2 <@> eb3s)
+
+  where
+    toAdvice b1 b2 b3 =
+      ToDo [] (backtrackCursor $ (take 50 $ repeat '#') ++ "\n"
+                              ++ showTopN 3 b1
+                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ showTopN 3 b2
+                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ showTopN 3 b3
+                              ++ (take 50 $ repeat '#') ++ "\n")
+
+--------------------------------------------------------------------------------
 cancelAllLimitOrders
     :: (Coin p, Coin v)
     => Event (TradingE p v q c)
