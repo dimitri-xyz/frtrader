@@ -4,6 +4,7 @@ module TradingFramework where
 
 import System.IO                (hPutStr, hPutStrLn, stderr)
 import Control.Exception.Base   (finally)
+import Data.Maybe
 
 import Pipes.Concurrent
 
@@ -111,18 +112,42 @@ showAllBooks e1s e2s e3s runOnE1 runOnE2 runOnE3 = do
 
     b1 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb1s)
     b2 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb2s)
+    b3 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb3s)
 
-    runOnE3 (toAdvice <$> b1 <*> b2 <@> eb3s)
+    runOnE3 ((\x y z -> toAdvice z x y) <$> b2 <*> b3 <@> eb1s)  -- USD-BTC is fastest market
 
   where
-    toAdvice b1 b2 b3 =
+    toAdvice bk1 bk2 bk3 =
       ToDo [] (backtrackCursor $ (take 50 $ repeat '#') ++ "\n"
-                              ++ showTopN 3 b1
+                              ++ showTopN 3 bk1
                               ++ (take 50 $ repeat '#') ++ "\n"
-                              ++ showTopN 3 b2
+                              ++ showTopN 3 bk2
                               ++ (take 50 $ repeat '#') ++ "\n"
-                              ++ showTopN 3 b3
-                              ++ (take 50 $ repeat '#') ++ "\n")
+                              ++ showTopN 3 bk3
+                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ "Asks: " ++ show a1 ++ " - " ++ show a2 ++ " - " ++ show a3 ++ "\n"
+                              ++ "Bids: " ++ show b1 ++ " - " ++ show b2 ++ " - " ++ show b3 ++ "\n"
+                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ "as':  " ++ show da1 ++ " - " ++ show da2 ++ " - " ++ show da3 ++ " (lower is better)\n"
+                              ++ "bs':  " ++ show db1 ++ " - " ++ show db2 ++ " - " ++ show db3 ++ " (higher is better)\n"
+                              )
+      where
+        a1 = best 99999 (asks bk1)
+        a2 = best 99999 (asks bk2)
+        a3 = best 99999 (asks bk3)
+        b1 = best     0 (bids bk1)
+        b2 = best     0 (bids bk2)
+        b3 = best     0 (bids bk3)
+        da1 = Price $ round2dp $ ((realToFrac a2 * 1.0025 * 1.0025 / realToFrac b3)   :: USD )
+        db1 = Price $ round2dp $ ((realToFrac b2 / realToFrac a3 / (1.0025 * 1.0025)) :: USD )
+        da2 = Price $ round2dp $ ((realToFrac a3 * 1.0025 * 1.0025 * realToFrac a1)   :: USD )
+        db2 = Price $ round2dp $ ((realToFrac b3 * realToFrac b1 / (1.0025 * 1.0025)) :: USD )
+        da3 = Price $            ((realToFrac a2 * 1.0025 * 1.0025 / realToFrac b1)   :: BTC )
+        db3 = Price $            ((realToFrac b2 / realToFrac a1 / (1.0025 * 1.0025)) :: BTC )
+
+
+    best :: (Coin p, Coin v) => Price p -> [Quote p v q] -> Price p
+    best p qs = fromMaybe p (getBestPrice' qs)
 
 --------------------------------------------------------------------------------
 cancelAllLimitOrders
