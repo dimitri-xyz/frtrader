@@ -3,7 +3,6 @@ extra-package-dbs: []
 packages:
 - '.'
 - 'dep/market-model'
-- 'dep/bitcoin-type'
 - 'dep/gdax-adapter'
 - 'dep/gdax-producer'
 - 'dep/gdax-executor'
