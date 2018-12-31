@@ -3,14 +3,8 @@ extra-package-dbs: []
 packages:
 - '.'
 - 'dep/market-model'
-- 'dep/gdax-adapter'
-- 'dep/gdax-producer'
-- 'dep/gdax-executor'
-
-- location:
-    git: https://github.com/dimitri-xyz/coinbase
-    commit: c8fdb479b87160b16fd4692eb541b968edaaa8d3
-  extra-dep: true
+- '../cbpro'
+- '../coinbase'
 
 - location:
     git: https://github.com/dimitri-xyz/stego-uuid

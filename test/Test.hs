@@ -15,7 +15,7 @@ import Control.Concurrent.Async
 import TradingFramework
 import Market.Types
 
-import GDAXProducer
+import Coinbase.Producer
 
 --------------------------------------------------------------------------------
 main :: IO ()

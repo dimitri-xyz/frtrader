@@ -35,9 +35,7 @@ executable frt
                      , reactive-banana >= 1.1.0.1
                      , FRTrader
                      , market-model
-                     , gdax-producer
-                     , gdax-executor
-                     , gdax-adapter
+                     , coinbase-connector
                      , pipes
 
 test-suite test-FRTrader
@@ -55,8 +53,7 @@ test-suite test-FRTrader
                      , tasty-hunit
                      , stm
                      , market-model
-                     , gdax-producer
-                     , gdax-adapter
+                     , coinbase-connector
 
 source-repository head
   type:     git

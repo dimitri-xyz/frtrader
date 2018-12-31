@@ -8,9 +8,9 @@ import Reactive.Banana.Frameworks
 import Pipes.Concurrent
 
 import Market.Types
-import GDAXProducer
-import GDAXAdapter
-import GDAXExecutor
+import Coinbase.Producer
+import Coinbase.Adapter
+import Coinbase.Executor
 
 import TradingFramework
 
