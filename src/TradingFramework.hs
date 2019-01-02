@@ -4,6 +4,7 @@ module TradingFramework where
 
 import System.IO                (hPutStr, hPutStrLn, stderr)
 import Control.Exception.Base   (finally)
+import Control.Monad            (void)
 import Data.Maybe
 
 import Pipes.Concurrent
@@ -34,7 +35,7 @@ logAndExecute output (ToDo actions reasons) = do
   -- reasons must explicitly include '\n' if desired.
   -- using bytestring to make output thread safe
   BS.hPutStr stderr (BS.pack reasons) 
-  sequence_ $ (atomically . send output) <$> actions
+  sequence_ $ atomically . send output <$> actions
 
 runExecutor :: Handler (Action p v) -> Input (Action p v) -> IO ()
 runExecutor executor inputQueue =
@@ -88,7 +89,7 @@ showBook :: (Coin p, Coin v, Show counter, MonadMoment m)
          -> m (Event (StrategyAdvice p v))
 showBook _ _ _ eNewBook = return (toAdvice <$> eNewBook)
   where
-    toAdvice = \book -> ToDo [] (backtrackCursor $ showTopN 3 book)
+    toAdvice book = ToDo [] (backtrackCursor $ showTopN 3 book)
 
 --------------------------------------------------------------------------------
 showAllBooks
@@ -115,16 +116,16 @@ showAllBooks e1s e2s e3s = do
 
   where
     toAdvice bk1 bk2 bk3 =
-      ToDo [] (backtrackCursor $ (take 50 $ repeat '#') ++ "\n"
+      ToDo [] (backtrackCursor $ replicate 50 '#' ++ "\n"
                               ++ showTopN 3 bk1
-                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ replicate 50 '#' ++ "\n"
                               ++ showTopN 3 bk2
-                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ replicate 50 '#' ++ "\n"
                               ++ showTopN 3 bk3
-                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ replicate 50 '#' ++ "\n"
                               ++ "Asks: " ++ show a1 ++ " - " ++ show a2 ++ " - " ++ show a3 ++ "\n"
                               ++ "Bids: " ++ show b1 ++ " - " ++ show b2 ++ " - " ++ show b3 ++ "\n"
-                              ++ (take 50 $ repeat '#') ++ "\n"
+                              ++ replicate 50 '#' ++ "\n"
                               ++ "as':  " ++ show da1 ++ " - " ++ show da2 ++ " - " ++ show da3 ++ " (lower is better)\n"
                               ++ "bs':  " ++ show db1 ++ " - " ++ show db2 ++ " - " ++ show db3 ++ " (higher is better)\n"
                               )
@@ -135,12 +136,12 @@ showAllBooks e1s e2s e3s = do
         b1 = best     0 (bids bk1)
         b2 = best     0 (bids bk2)
         b3 = best     0 (bids bk3)
-        da1 = Price $ round2dp $ ((realToFrac a2 * 1.0025 * 1.0025 / realToFrac b3)   :: USD )
-        db1 = Price $ round2dp $ ((realToFrac b2 / realToFrac a3 / (1.0025 * 1.0025)) :: USD )
-        da2 = Price $ round2dp $ ((realToFrac a3 * 1.0025 * 1.0025 * realToFrac a1)   :: USD )
-        db2 = Price $ round2dp $ ((realToFrac b3 * realToFrac b1 / (1.0025 * 1.0025)) :: USD )
-        da3 = Price $            ((realToFrac a2 * 1.0025 * 1.0025 / realToFrac b1)   :: BTC )
-        db3 = Price $            ((realToFrac b2 / realToFrac a1 / (1.0025 * 1.0025)) :: BTC )
+        da1 = Price $ round2dp ((realToFrac a2 * 1.0025 * 1.0025 / realToFrac b3)   :: USD )
+        db1 = Price $ round2dp ((realToFrac b2 / realToFrac a3 / (1.0025 * 1.0025)) :: USD )
+        da2 = Price $ round2dp ((realToFrac a3 * 1.0025 * 1.0025 * realToFrac a1)   :: USD )
+        db2 = Price $ round2dp ((realToFrac b3 * realToFrac b1 / (1.0025 * 1.0025)) :: USD )
+        da3 = Price            ((realToFrac a2 * 1.0025 * 1.0025 / realToFrac b1)   :: BTC )
+        db3 = Price            ((realToFrac b2 / realToFrac a1 / (1.0025 * 1.0025)) :: BTC )
 
 
     best :: (Coin p, Coin v) => Price p -> [Quote p v q] -> Price p
@@ -164,7 +165,7 @@ dumbStrategy
     -> (Event (StrategyAdvice p v) -> MomentIO ())
     -> MomentIO ()
 dumbStrategy es outputEvents = mdo
-  let eAny           = const () <$> es
+  let eAny           = void es
       (eP, eC, _, _) = splitEvents  es
       forceCancel    = cancelLimitOrders eP
       noticeCancel   = const (ToDo [] "Detected cancellation!\n") <$> eC
@@ -185,10 +186,10 @@ onAny :: (Coin p, Coin v)
        -> Event (QuoteBook         p v q c)
        -> Event ()
 onAny eNewBook eNewPlacement eNewCancels eNewFills =
-  let eB = const () <$> eNewBook
-      eP = const () <$> eNewPlacement
-      eC = const () <$> eNewCancels
-      eF = const () <$> eNewFills
+  let eB = void eNewBook
+      eP = void eNewPlacement
+      eC = void eNewCancels
+      eF = void eNewFills
       eAny = unionWith const
                 (unionWith const eF eC)
                 (unionWith const eP eB)
@@ -199,4 +200,4 @@ cancelLimitOrders :: (Coin p, Coin v) => Event (OrderPlacement p v) -> Event (St
 cancelLimitOrders ePlaced =
   let getOrd (Placement o) = o
       toAdvice a = ToDo [a] ("Canceling placed limit order: " ++ show a ++ "\n")
-   in (toAdvice . CancelLimitOrder . getOrderID) <$> filterE isLimitOrder (getOrd <$> ePlaced)
+   in toAdvice . CancelLimitOrder . getOrderID <$> filterE isLimitOrder (getOrd <$> ePlaced)
