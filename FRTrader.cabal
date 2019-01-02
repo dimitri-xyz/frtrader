@@ -23,6 +23,7 @@ library
                      , reactive-banana >= 1.1.0.1
                      , market-model
                      , razao-base
+                     , bytestring
 
 executable frt
   hs-source-dirs:      app

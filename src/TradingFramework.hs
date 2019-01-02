@@ -10,6 +10,7 @@ import Pipes.Concurrent
 
 import Reactive.Banana
 import Reactive.Banana.Frameworks
+import qualified Data.ByteString.Char8 as BS
 
 import Market.Types
 import Market.Util
@@ -30,7 +31,9 @@ showReasoning (ToDo _ reasons) = putStrLn reasons
 
 logAndExecute :: Output (Action p v) -> StrategyAdvice p v -> IO ()
 logAndExecute output (ToDo actions reasons) = do
-  hPutStr stderr reasons -- reasons must explicitly include '\n' if desired.
+  -- reasons must explicitly include '\n' if desired.
+  -- using bytestring to make output thread safe
+  BS.hPutStr stderr (BS.pack reasons) 
   sequence_ $ (atomically . send output) <$> actions
 
 runExecutor :: Handler (Action p v) -> Input (Action p v) -> IO ()
@@ -80,16 +83,10 @@ splitEvents es =
 --------------------------------------------------------------------------------
 --                     SIMPLE TRADING STRATEGIES
 --------------------------------------------------------------------------------
-showBook :: (Coin p, Coin v, Show counter)
-         => place
-         -> cancel
-         -> fill
-         -> MomentIO (Event (QuoteBook p v qtail counter))
-         -> (Event (StrategyAdvice p v) -> MomentIO ())
-         -> MomentIO ()
-showBook _ _ _ newBooks runOnOutputEvents = mdo
-    eNewBook <- newBooks
-    runOnOutputEvents (toAdvice <$> eNewBook)
+showBook :: (Coin p, Coin v, Show counter, MonadMoment m)
+         => place -> cancel -> fill -> Event (QuoteBook p v qtail counter)
+         -> m (Event (StrategyAdvice p v))
+showBook _ _ _ eNewBook = return (toAdvice <$> eNewBook)
   where
     toAdvice = \book -> ToDo [] (backtrackCursor $ showTopN 3 book)
 
@@ -97,15 +94,13 @@ showBook _ _ _ newBooks runOnOutputEvents = mdo
 showAllBooks
     :: ( Coin p1, Coin v1, Show c1, Num c1
        , Coin p2, Coin v2, Show c2, Num c2
-       , Coin p3, Coin v3, Show c3, Num c3)
+       , Coin p3, Coin v3, Show c3, Num c3
+       , MonadMoment m)
     =>  Event (TradingE p1 v1 q1 c1)
     ->  Event (TradingE p2 v2 q2 c2)
     ->  Event (TradingE p3 v3 q3 c3)
-    -> (Event (StrategyAdvice p1 v1) -> MomentIO ())
-    -> (Event (StrategyAdvice p2 v2) -> MomentIO ())
-    -> (Event (StrategyAdvice p3 v3) -> MomentIO ())
-    -> MomentIO ()
-showAllBooks e1s e2s e3s runOnE1 runOnE2 runOnE3 = do
+    -> m (Event (StrategyAdvice p1 v1), Event (StrategyAdvice p2 v2), Event (StrategyAdvice p3 v3))
+showAllBooks e1s e2s e3s = do
     let (_, _, _, eb1s) = splitEvents e1s
         (_, _, _, eb2s) = splitEvents e2s
         (_, _, _, eb3s) = splitEvents e3s
@@ -114,7 +109,9 @@ showAllBooks e1s e2s e3s runOnE1 runOnE2 runOnE3 = do
     b2 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb2s)
     b3 <- accumB (QuoteBook {bids = [], asks = [], counter = 0}) (const <$> eb3s)
 
-    runOnE3 ((\x y z -> toAdvice z x y) <$> b2 <*> b3 <@> eb1s)  -- USD-BTC is fastest market
+    return ( (\y z x -> toAdvice x y z) <$> b2 <*> b3 <@> eb1s   -- only fires on eb1s
+           , never  -- (\z x y -> toAdvice x y z) <$> b3 <*> b1 <@> eb2s   -- only fires on eb2s
+           , never) -- (\x y z -> toAdvice x y z) <$> b1 <*> b2 <@> eb3s)  -- only fires on eb3s
 
   where
     toAdvice bk1 bk2 bk3 =

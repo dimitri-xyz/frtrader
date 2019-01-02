@@ -47,13 +47,14 @@ main = do
       esUSDLTC  <- fromHandlerSet handlersUSDLTC
       esBTCLTC  <- fromHandlerSet handlersBTCLTC
 
-      showAllBooks
+      (eUSDBTC, eUSDLTC, eBTCLTC) <- showAllBooks
           (esUSDBTC :: Event (GDAXTradingE USD BTC))
           (esUSDLTC :: Event (GDAXTradingE USD LTC))
           (esBTCLTC :: Event (GDAXTradingE BTC LTC))
-          (reactimate . fmap (logAndExecute outputUSDBTC))
-          (reactimate . fmap (logAndExecute outputUSDLTC))
-          (reactimate . fmap (logAndExecute outputBTCLTC))
+
+      reactimate $ fmap (logAndExecute outputUSDBTC) eUSDBTC
+      reactimate $ fmap (logAndExecute outputUSDLTC) eUSDLTC
+      reactimate $ fmap (logAndExecute outputBTCLTC) eBTCLTC
 
   -- start sensory threads
   fromMarketStream gdaxConfig (fireUSDBTC . TB) (fireUSDBTC . TP) (fireUSDBTC . TC) (fireUSDBTC . TF)
