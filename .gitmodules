@@ -1,0 +1,3 @@
+[submodule "dep/market-model"]
+	path = dep/market-model
+	url = https://github.com/dimitri-xyz/market-model
