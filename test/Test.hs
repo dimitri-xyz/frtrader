@@ -4,7 +4,7 @@
 module Main where
 
 import Reactive.Banana
-import Reactive.Banana.Frameworks
+import Reactive.Banana.Frameworks.Extended
 import Pipes.Concurrent
 
 import Test.Tasty
@@ -54,8 +54,6 @@ compareOutputTest networkDescription inputs expecteds = do
     logEventsInTVar tv e = reactimate . fmap (atomically . modifyTVar tv . (:) ) $ e
 
 --------------------------------------------------------------------------------
-reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
-
 limOrder :: Order p v (Confirmation p v)
 limOrder = LimitOrder
   { oSide          = undefined
@@ -79,8 +77,8 @@ cancelInEs =
     , TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
     , TP (Placement (MarketOrder {}))
     ]
-         
-cancelExpectedAs = 
-    [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
+
+reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
+cancelExpectedAs = [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
 
 --------------------------------------------------------------------------------

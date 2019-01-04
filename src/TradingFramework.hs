@@ -11,19 +11,13 @@ import Data.Maybe
 import Pipes.Concurrent
 
 import Reactive.Banana
-import Reactive.Banana.Frameworks
+import Reactive.Banana.Frameworks.Extended
 import qualified Data.ByteString.Char8 as BS
 
 import Market.Types
 import Market.Util
 import Razao.Util
 import Combinator
-
--- changing the names to better match the semantics
-type HandlerSet = AddHandler
-newHandlerSet   = newAddHandler
-fromHandlerSet  = fromAddHandler
-activate        = actuate
 
 --------------------------------------------------------------------------------
 --                      FRAMEWORK HELPER FUNCTIONS

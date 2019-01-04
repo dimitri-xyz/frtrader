@@ -33,6 +33,7 @@ test-suite test-FRTrader
   build-depends:       base
                      , pipes-concurrency
                      , reactive-banana >= 1.1.0.1
+                     , razao-base
                      , FRTrader
                      , tasty
                      , tasty-hunit
