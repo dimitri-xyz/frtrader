@@ -13,6 +13,7 @@ import Test.Tasty.HUnit
 import Control.Concurrent.STM
 
 import TradingFramework
+import Strategy
 import Market.Types
 
 --------------------------------------------------------------------------------
