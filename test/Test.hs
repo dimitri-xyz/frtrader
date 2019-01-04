@@ -71,20 +71,14 @@ compareOutputTest networkDescription inputs expecteds = do
     network <- compile $ mdo
         es <- fromHandlerSet inputHandlers
         eAdvice <- networkDescription es 
-        eAdvs   <- accumIntoListEvents eAdvice
-        logLastEventInTVar tv eAdvs
+        logEventsInTVar tv eAdvice
 
     activate network
-
     sequence_ $ fmap fireInput inputs
     outputEvents <- readTVarIO tv
     assertEqual "Output list does not match" expecteds (reverse outputEvents)
 
   where
-
-    logLastEventInTVar :: TVar a -> Event a -> MomentIO ()
-    logLastEventInTVar tv e = reactimate . fmap (atomically . writeTVar tv) $ e
-
     -- cons successive events onto the head of a list
-    accumIntoListEvents :: MonadMoment m => Event a -> m (Event [a])
-    accumIntoListEvents event = accumE [] (fmap (:) event)
+    logEventsInTVar :: TVar [a] -> Event a -> MomentIO ()
+    logEventsInTVar tv e = reactimate . fmap (atomically . modifyTVar tv . (:) ) $ e
