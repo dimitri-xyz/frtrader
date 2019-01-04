@@ -20,40 +20,10 @@ main :: IO ()
 main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
 --------------------------------------------------------------------------------
 
-tests :: forall p v. (Coin p, Coin v) => Price p -> Vol v -> TestTree
+tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
 tests _ _ = testGroup " Trading Strategy Tests"
-  [ testCase "Compare output actions"
-        (compareOutputTest cancelAllLimitOrders
-          -- input events
-         [ TF (OrderFilled [])
-         , TP (Placement limOrder :: OrderPlacement p v)
-         , TB (QuoteBook {})
-         , TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
-         , TP (Placement (MarketOrder {}))]
-          -- expected output
-         [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
-        )
-
+  [ testCase "Compare output cancelAllLimits" (compareOutputTest cancelAllLimitOrders (cancelInEs :: [TradingE p v q c]) cancelExpectedAs)
   ]
-
---------------------------------------------------------------------------------
-reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
-
-limOrder :: Order p v (Confirmation p v)
-limOrder = LimitOrder
-  { oSide          = undefined
-  , limitPrice     = undefined
-  , limitVolume    = undefined
-  , aConfirmation  = confirm
-  }
-
-confirm :: Confirmation p v
-confirm = Conf
-  { orderID      = OID 333 444
-  , mTimestamp   = undefined
-  , mExecuted    = undefined
-  , mOrderStatus = undefined
-  }
 
 --------------------------------------------------------------------------------
 compareOutputTest
@@ -82,3 +52,35 @@ compareOutputTest networkDescription inputs expecteds = do
     -- cons successive events onto the head of a list
     logEventsInTVar :: TVar [a] -> Event a -> MomentIO ()
     logEventsInTVar tv e = reactimate . fmap (atomically . modifyTVar tv . (:) ) $ e
+
+--------------------------------------------------------------------------------
+reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
+
+limOrder :: Order p v (Confirmation p v)
+limOrder = LimitOrder
+  { oSide          = undefined
+  , limitPrice     = undefined
+  , limitVolume    = undefined
+  , aConfirmation  = confirm
+  }
+
+confirm :: Confirmation p v
+confirm = Conf
+  { orderID      = OID 333 444
+  , mTimestamp   = undefined
+  , mExecuted    = undefined
+  , mOrderStatus = undefined
+  }
+
+cancelInEs = 
+    [ TF (OrderFilled [])
+    , TP (Placement limOrder)
+    , TB (QuoteBook {})
+    , TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
+    , TP (Placement (MarketOrder {}))
+    ]
+         
+cancelExpectedAs = 
+    [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
+
+--------------------------------------------------------------------------------
