@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RecursiveDo #-}
 
 module Main where
 
@@ -10,12 +11,9 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Control.Concurrent.STM
-import Control.Concurrent.Async
 
 import TradingFramework
 import Market.Types
-
-import Coinbase.Producer
 
 --------------------------------------------------------------------------------
 main :: IO ()
@@ -33,12 +31,13 @@ tests _ _ = testGroup " Trading Strategy Tests"
          , TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
          , TP (Placement (MarketOrder {}))]
           -- expected output
-         [ToDo [CancelLimitOrder {acOrderID = OID 333 444}] reasonMessage])
+         [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
+        )
 
   ]
 
 --------------------------------------------------------------------------------
-reasonMessage = "Canceling placed limit order: CancelLimitOrder {acOrderID = OID {hw = 333, lw = 444}}\n"
+reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
 
 limOrder :: Order p v (Confirmation p v)
 limOrder = LimitOrder
@@ -59,10 +58,7 @@ confirm = Conf
 --------------------------------------------------------------------------------
 compareOutputTest
     :: forall p v q c output. (Eq output, Show output)
-    => ( Event (TradingE p v q c)
-        -> (Event output -> MomentIO ())
-        -> MomentIO ()
-       )
+    => ( Event (TradingE p v q c) -> MomentIO (Event output) ) 
     -> [TradingE p v q c]
     -> [output]
     -> IO ()
@@ -72,9 +68,11 @@ compareOutputTest networkDescription inputs expecteds = do
     -- create TVAR to hold final list of output events
     tv <- newTVarIO []
 
-    network <- compile $ do
+    network <- compile $ mdo
         es <- fromHandlerSet inputHandlers
-        networkDescription es (\e -> accumIntoListEvents e >>= logLastEventInTVar tv)
+        eAdvice <- networkDescription es 
+        eAdvs   <- accumIntoListEvents eAdvice
+        logLastEventInTVar tv eAdvs
 
     activate network
 

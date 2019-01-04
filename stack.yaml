@@ -1,23 +1,17 @@
-flags: {}
-extra-package-dbs: []
 packages:
 - '.'
 - 'dep/market-model'
-- '../cbpro'
-- '../coinbase'
-
-- location:
-    git: https://github.com/dimitri-xyz/stego-uuid
-    commit: 47f6bfa4660f6bee73581c71bce51dc09cf02a5c
-  extra-dep: true
 
 - location:
     git: https://github.com/dimitri-xyz/razao-base
-    commit: e75322f1f1b4f477d36ca39b9cab8d4a78e86eee
+    commit: 5fc12c80aab9757f3aa1202d1abd4a7e172922df
   extra-dep: true
 
-extra-deps:
-- reactive-banana-1.1.0.1
-- Crypto-4.2.5.1
-- uuid-aeson-0.1.0.0
-resolver: lts-8.3
+- location:
+    git: https://github.com/HeinrichApfelmus/reactive-banana
+    commit: 37d17de83bfa656ca20dc03457eeff0a2c33b6bf
+  extra-dep: true
+  subdirs:
+  - reactive-banana
+
+resolver: lts-13.1

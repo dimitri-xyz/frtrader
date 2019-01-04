@@ -1,4 +1,5 @@
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module TradingFramework where
 
@@ -27,14 +28,14 @@ activate        = actuate
 --------------------------------------------------------------------------------
 --                      FRAMEWORK HELPER FUNCTIONS
 --------------------------------------------------------------------------------
-showReasoning :: StrategyAdvice p v -> IO ()
-showReasoning (ToDo _ reasons) = putStrLn reasons
+showReasoning :: StrategyAdvice action -> IO ()
+showReasoning (Advice (reasoning, _)) = putStrLn reasoning
 
-logAndExecute :: Output (Action p v) -> StrategyAdvice p v -> IO ()
-logAndExecute output (ToDo actions reasons) = do
+logAndExecute :: Output actions -> StrategyAdvice actions -> IO ()
+logAndExecute output (Advice (reasoning, actions)) = do
   -- reasons must explicitly include '\n' if desired.
   -- using bytestring to make output thread safe
-  BS.hPutStr stderr (BS.pack reasons) 
+  BS.hPutStr stderr (BS.pack reasoning) 
   sequence_ $ atomically . send output <$> actions
 
 runExecutor :: Handler (Action p v) -> Input (Action p v) -> IO ()
@@ -86,10 +87,10 @@ splitEvents es =
 --------------------------------------------------------------------------------
 showBook :: (Coin p, Coin v, Show counter, MonadMoment m)
          => place -> cancel -> fill -> Event (QuoteBook p v qtail counter)
-         -> m (Event (StrategyAdvice p v))
+         -> m (Event (StrategyAdvice action))
 showBook _ _ _ eNewBook = return (toAdvice <$> eNewBook)
   where
-    toAdvice book = ToDo [] (backtrackCursor $ showTopN 3 book)
+    toAdvice book = Advice (backtrackCursor $ showTopN 3 book, ZipList [])
 
 --------------------------------------------------------------------------------
 showAllBooks
@@ -100,7 +101,7 @@ showAllBooks
     =>  Event (TradingE p1 v1 q1 c1)
     ->  Event (TradingE p2 v2 q2 c2)
     ->  Event (TradingE p3 v3 q3 c3)
-    -> m (Event (StrategyAdvice p1 v1), Event (StrategyAdvice p2 v2), Event (StrategyAdvice p3 v3))
+    -> m (Event (StrategyAdvice a1), Event (StrategyAdvice a2), Event (StrategyAdvice a3))
 showAllBooks e1s e2s e3s = do
     let (_, _, _, eb1s) = splitEvents e1s
         (_, _, _, eb2s) = splitEvents e2s
@@ -116,7 +117,7 @@ showAllBooks e1s e2s e3s = do
 
   where
     toAdvice bk1 bk2 bk3 =
-      ToDo [] (backtrackCursor $ replicate 50 '#' ++ "\n"
+      Advice (backtrackCursor $ replicate 50 '#' ++ "\n"
                               ++ showTopN 3 bk1
                               ++ replicate 50 '#' ++ "\n"
                               ++ showTopN 3 bk2
@@ -128,7 +129,8 @@ showAllBooks e1s e2s e3s = do
                               ++ replicate 50 '#' ++ "\n"
                               ++ "as':  " ++ show da1 ++ " - " ++ show da2 ++ " - " ++ show da3 ++ " (lower is better)\n"
                               ++ "bs':  " ++ show db1 ++ " - " ++ show db2 ++ " - " ++ show db3 ++ " (higher is better)\n"
-                              )
+             , ZipList []
+             )
       where
         a1 = best 99999 (asks bk1)
         a2 = best 99999 (asks bk2)
@@ -149,32 +151,35 @@ showAllBooks e1s e2s e3s = do
 
 --------------------------------------------------------------------------------
 cancelAllLimitOrders
-    :: (Coin p, Coin v)
+    :: (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c)
-    -> (Event (StrategyAdvice p v) -> MomentIO ())
-    -> MomentIO ()
-cancelAllLimitOrders es runOnOutputEvents =
+    -> m (Event (StrategyAdvice (Action p v)))
+cancelAllLimitOrders es =
   let (ep, _, _, _) = splitEvents es
-   in runOnOutputEvents (cancelLimitOrders ep)
+   in return (cancelLimitOrders ep)
+
+-- | Issue cancellation for any limit order seen.
+cancelLimitOrders :: (Coin p, Coin v) => Event (OrderPlacement p v) -> Event (StrategyAdvice (Action p v))
+cancelLimitOrders ePlaced =
+  let getOrd (Placement o) = o
+      toAdvice a = Advice ("Canceling placed limit order: " ++ show a ++ "\n", ZipList [a])
+   in toAdvice . CancelLimitOrder . getOrderID <$> filterE isLimitOrder (getOrd <$> ePlaced)
 
 --------------------------------------------------------------------------------
--- | Places an order and then cancels it. Detects cancellation.
-dumbStrategy
-    :: (Coin p, Coin v)
+-- | Places an order and then cancels it. Detects a cancellation, not necessarily its own.
+dumbStrategy :: forall m p v q c.
+    (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c)
-    -> (Event (StrategyAdvice p v) -> MomentIO ())
-    -> MomentIO ()
-dumbStrategy es outputEvents = mdo
+    -> m (Event (StrategyAdvice (Action p v)))
+dumbStrategy es = mdo
   let eAny           = void es
       (eP, eC, _, _) = splitEvents  es
       forceCancel    = cancelLimitOrders eP
-      noticeCancel   = const (ToDo [] "Detected cancellation!\n") <$> eC
+      noticeCancel   = const (Advice ("Detected a cancellation!\n", ZipList [])) <$> eC
+      strat          = Advice ("Placing an ask!\n", ZipList [NewLimitOrder Ask 99555 0.01 Nothing])
 
-  placeOrder <- once (ToDo [NewLimitOrder Ask 99555 0.01] "Placing an ask!\n") eAny
-
-  -- This is a next step, Monoid instance!
-  outputEvents $ unionWith const (unionWith (error "Conflict!") placeOrder forceCancel) noticeCancel
-
+  placeOrder <- once strat eAny
+  return $ unionWith const (unionWith (error "Conflict!") placeOrder forceCancel) noticeCancel
 --------------------------------------------------------------------------------
 --                            COMBINATORS
 --------------------------------------------------------------------------------
@@ -195,9 +200,3 @@ onAny eNewBook eNewPlacement eNewCancels eNewFills =
                 (unionWith const eP eB)
    in eAny
 
--- | Issue cancellation for any limit order seen.
-cancelLimitOrders :: (Coin p, Coin v) => Event (OrderPlacement p v) -> Event (StrategyAdvice p v)
-cancelLimitOrders ePlaced =
-  let getOrd (Placement o) = o
-      toAdvice a = ToDo [a] ("Canceling placed limit order: " ++ show a ++ "\n")
-   in toAdvice . CancelLimitOrder . getOrderID <$> filterE isLimitOrder (getOrd <$> ePlaced)
