@@ -23,7 +23,8 @@ main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
 
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
 tests _ _ = testGroup " Trading Strategy Tests"
-  [ testCase "Compare output cancelAllLimits" (compareOutputTest cancelAllLimitOrders (cancelInEs :: [TradingE p v q c]) cancelExpectedAs)
+  [ testCase "cancelAllLimits"  (compareOutputTest cancelAllLimitOrders   (cancelInEs :: [TradingE p v q c]) cancelExpectedAs)
+  , testCase "copyBookStrategy" (compareOutputTest (copyBookStrategy Bid) (copyInEs   :: [TradingE p v q c]) copyExpectedAs)
   ]
 
 --------------------------------------------------------------------------------
@@ -81,5 +82,48 @@ cancelInEs =
 
 reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
 cancelExpectedAs = [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
+
+--------------------------------------------------------------------------------
+-- FIX ME! Compiler requires this type signature. Why? Monomorphism?
+qb1, qb2, qb3, qb4, qa1 :: forall p v q. (Coin p, Coin v) => Quote p v q 
+
+qb1 = Quote Bid (Price 2000) (Vol 1) undefined
+qb2 = Quote Bid (Price 1000) (Vol 1) undefined
+qb3 = Quote Bid (Price 2000) (Vol 3) undefined
+qb4 = Quote Bid (Price 1500) (Vol 1) undefined
+
+qa1 = Quote Ask (Price 9000) (Vol 1) undefined
+
+
+-- FIX ME! Compiler requires this type signature. Why? Monomorphism?
+bk1, bk2, bk3, bk4 :: forall p v q c. (Coin p, Coin v) => QuoteBook p v q c
+
+bk1 = QuoteBook {bids = [qb1],     asks = [qa1], counter = undefined}
+bk2 = QuoteBook {bids = [qb1,qb2], asks = [],    counter = undefined}
+bk3 = QuoteBook {bids = [qb3,qb2], asks = [qa1], counter = undefined}
+bk4 = QuoteBook {bids = [qb4,qb2], asks = [],    counter = undefined}
+
+-- FIX ME! Compiler requires this type signature. Why? Monomorphism?
+copyInEs :: forall p v q c. (Coin p, Coin v) => [TradingE p v q c]
+copyInEs = 
+    [ TF (OrderFilled [])
+    , TB bk1
+    , TP (Placement limOrder)
+    , TB bk2
+    , TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
+    , TB bk3
+    , TP (Placement (MarketOrder {}))
+    , TB bk4
+    ]
+
+-- FIX ME! Compiler requires this type signature. Why? Monomorphism?
+copyExpectedAs :: forall p v. (Coin p, Coin v) => [StrategyAdvice (Action p v)]
+copyExpectedAs =
+    [ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))])
+    , Advice ("", ZipList [])
+      -- non-optimized: cancels and replaces with new order a volume increase on same price level
+    , Advice ("", ZipList [CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 2000) (Vol 3) (Just(OID 0 1))])
+    , Advice ("", ZipList [CancelLimitOrder (OID 0 1), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))])
+    ]
 
 --------------------------------------------------------------------------------

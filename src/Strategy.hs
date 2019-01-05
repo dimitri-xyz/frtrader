@@ -118,4 +118,9 @@ dumbStrategy es = mdo
   return $ unionWith const (unionWith (error "Conflict!") placeOrder forceCancel) noticeCancel
 
 --------------------------------------------------------------------------------
-
+-- | Copies orderbook
+copyBookStrategy
+    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => OrderSide -> Event (TradingE p v q c) -> m (Event (StrategyAdvice (Action p v)))
+copyBookStrategy side es = mdo
+    return $ never
