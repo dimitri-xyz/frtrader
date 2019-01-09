@@ -23,8 +23,8 @@ main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
 
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
 tests _ _ = testGroup " Trading Strategy Tests"
-  [ testCase "cancelAllLimits"  (compareOutputTest cancelAllLimitOrders   (cancelInEs :: [TradingE p v q c]) cancelExpectedAs)
-  , testCase "copyBookStrategy" (compareOutputTest (copyBookStrategy Bid) (copyInEs   :: [TradingE p v q c]) copyExpectedAs)
+  [ testCase "cancelAllLimits"  (compareOutputTest cancelAllLimitOrders (cancelInEs :: [TradingE p v q c]) cancelExpectedAs)
+  , testCase "copyBookStrategy" (compareOutputTest copyBookStrategy     (copyInEs   :: [TradingE p v q c]) copyExpectedAs)
   ]
 
 --------------------------------------------------------------------------------

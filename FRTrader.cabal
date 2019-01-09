@@ -9,7 +9,8 @@ copyright:           2017 Dimitri DeFigueiredo
 category:            finance
 build-type:          Simple
 extra-source-files:  README.md
-extra-doc-files:     doc/frbtrading.lyx
+extra-doc-files:       doc/frbtrading.lyx
+                     , doc/copy-strategy.md
 cabal-version:       >=1.20
 
 library
@@ -24,6 +25,8 @@ library
                      , market-model
                      , razao-base
                      , bytestring
+                     , unordered-containers
+                     , hashable
 
 test-suite test-FRTrader
   type:                exitcode-stdio-1.0
