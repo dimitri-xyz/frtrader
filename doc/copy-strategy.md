@@ -5,7 +5,13 @@ The current implementation of the book mirroring strategy makes a few assumption
 1. All requests will eventually succeed - This is a big assumption, but it enables us only to track the requests rather than the actual placements/cancellations at the exchange. This will like be refined later.
 2. Mirroring is done per price-level not per-order - This just makes it simpler
 3. We can keep track of orders per ClientOid rather than by the exchange's actual OrderID. The framework is responsible for matching the two identifiers.
-4. All memory is kept in the internal "State" and this state can change do to orderbook events or executions at the "destination" exchange.
+4. All memory is kept in the internal "State" and this state can change due to orderbook events or executions at the "destination" exchange.
+
+
+### Action Life-Cycle
+
+Once requested by the strategy, an Action is considered "open", even if it has not yet been requested to the exchange. Cancellation Actions may fail (This may cause cancellation failure events, a new even type, not sure yet).
+
 
 ### Rationale
 

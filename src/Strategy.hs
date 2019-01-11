@@ -180,18 +180,38 @@ copyBookStrategy es = mdo
 
          in foldr addTarget' (advice', state') targets
     
+    -- Cancels ALL open actions on ALL price-levels that are not on the new targets list.
     cleanupOldLevels :: [Target p v] -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     cleanupOldLevels targets oldState@(ActionState {openActionsMap = oldActionsMap}) = 
-        let newKeysMap = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
+        (newAdvice, oldState {openActionsMap = newActionMap})
+      where
+        newKeysMap = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
 
-            differenceMap   = H.difference   oldActionsMap newKeysMap
-            intersectionMap = H.intersection oldActionsMap newKeysMap
+        differenceMap   = H.difference   oldActionsMap newKeysMap
+        intersectionMap = H.intersection oldActionsMap newKeysMap
 
-            removalActions = fmap toCancellation . ZipList . concat . fmap snd . H.toList $ differenceMap
+        oldActions     = ZipList . concat . fmap snd . H.toList $ differenceMap
+        removalActions = toCancellation <$> oldActions
 
-         in ( Advice ("Remove old unmatched price-levels: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
-            , oldState {openActionsMap = intersectionMap}
-            )
+        newAdvice    = Advice ("Remove old unmatched price-levels: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
+        newActionMap = intersectionMap
+
+    -- subtractVol has to subtract *at least* the amount of volume requested. It MAY cancel more, but it should avoid unnecessary cancellations.
+    -- TO DO: This is currently a naïve implementation. It just cancels *all* pending orders.
+    subtractVol :: OrderSide -> Price p -> Vol v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
+    subtractVol sd p v oldState@(ActionState{openActionsMap = oldActionsMap}) =
+        (newAdvice, oldState {openActionsMap = newActionMap})
+      where
+        oldActions     = ZipList $ H.lookupDefault [] (sd,p) oldActionsMap
+        removalActions = toCancellation <$> oldActions
+
+        newAdvice    = Advice ("Cancelling all actions to subtract volume: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
+        newActionMap = H.delete (sd, p) oldActionsMap
+
+
+    toCancellation :: OpenAction p v -> Action p v
+    toCancellation = CancelLimitOrder . oaClientOID
+
 
     addTarget :: Target p v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     addTarget (s, p, v) oldState
@@ -217,20 +237,6 @@ copyBookStrategy es = mdo
         newState = ActionState {openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) actionsMap, nextCOID = OID hw (lw+1)}
         newAction     = NewLimitOrder sd p v (Just curOID)
         newOpenAction = OpenOrder v curOID (Vol 0)
-
-    -- FIX ME! "DRY" violation with `removeOldLevels`
-    subtractVol :: OrderSide -> Price p -> Vol v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    subtractVol sd p v oldState@(ActionState{openActionsMap = actionsMap, nextCOID = curOID@(OID hw lw)}) 
-        = (newAdvice, newState)
-      where
-        oldActions = ZipList $ H.lookupDefault [] (sd,p) actionsMap
-        removalActions = toCancellation <$> oldActions
-        newAdvice = Advice ("Cancelling actions to subtract volume: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
-
-        newState = oldState {openActionsMap = H.delete (sd, p) actionsMap}
-
-    toCancellation :: OpenAction p v -> Action p v
-    toCancellation = CancelLimitOrder . oaClientOID
 
 
 regions :: [QuoteBook p v q c -> Maybe (Target p v)]
