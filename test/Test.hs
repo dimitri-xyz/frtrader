@@ -23,37 +23,49 @@ main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
 
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
 tests _ _ = testGroup " Trading Strategy Tests"
-  [ testCase "cancelAllLimits"  (compareOutputTest cancelAllLimitOrders (cancelInEs :: [TradingE p v q c]) cancelExpectedAs)
-  , testCase "copyBookStrategy" (compareOutputTest copyBookStrategy     (copyInEs   :: [TradingE p v q c]) copyExpectedAs)
-  ]
+    [ testCase "cancelAllLimits" $ do
+        outputEvents <- interpretFrameworks cancelAllLimitOrders (Just <$> (cancelInEs :: [TradingE p v q c]))  
+        assertEqual "Output list does not match" cancelExpectedAs outputEvents
+
+    , testCase "copyBookStrategy" $ do
+        outputEvents <- interpretFrameworks copyBookStrategy (Just <$> (copyInEs :: [TradingE p v q c]))  
+        assertEqual "Output list does not match" copyExpectedAs (fmap removeReasoning <$> outputEvents)
+
+    ]
 
 --------------------------------------------------------------------------------
-compareOutputTest
-    :: forall p v q c output. (Eq output, Show output)
-    => ( Event (TradingE p v q c) -> MomentIO (Event output) ) 
-    -> [TradingE p v q c]
-    -> [output]
-    -> IO ()
+-- compareOutputTest
+--     :: forall p v q c output. (Eq output, Show output)
+--     => ( Event (TradingE p v q c) -> MomentIO (Event output) ) 
+--     -> [TradingE p v q c]
+--     -> [output]
+--     -> IO ()
 
-compareOutputTest networkDescription inputs expecteds = do
-    (inputHandlers, fireInput) <- newHandlerSet
-    -- create TVAR to hold final list of output events
-    tv <- newTVarIO []
+-- compareOutputTest networkDescription inputs expecteds = do
+--     outputEvents <- interpretFrameworks networkDescription (Just <$> inputs)  
+--     assertEqual "Output list does not match" (Just <$> expecteds) outputEvents
 
-    network <- compile $ mdo
-        es <- fromHandlerSet inputHandlers
-        eAdvice <- networkDescription es 
-        logEventsInTVar tv eAdvice
+-- interpret           :: (Event a -> Moment   (Event b)) -> [Maybe a] -> IO [Maybe b] 
+-- interpretFrameworks :: (Event a -> MomentIO (Event b)) -> [Maybe a] -> IO [Maybe b] 
 
-    activate network
-    sequence_ $ fmap fireInput inputs
-    outputEvents <- readTVarIO tv
-    assertEqual "Output list does not match" expecteds (reverse outputEvents)
+    -- -- (inputHandlers, fireInput) <- newHandlerSet
+    -- -- -- create TVAR to hold final list of output events
+    -- -- tv <- newTVarIO []
 
-  where
-    -- cons successive events onto the head of a list
-    logEventsInTVar :: TVar [a] -> Event a -> MomentIO ()
-    logEventsInTVar tv e = reactimate . fmap (atomically . modifyTVar tv . (:) ) $ e
+    -- network <- compile $ mdo
+    --     es <- fromHandlerSet inputHandlers
+    --     eAdvice <- networkDescription es 
+    --     logEventsInTVar tv eAdvice
+
+    -- activate network
+    -- sequence_ $ fmap fireInput inputs
+    -- outputEvents <- readTVarIO tv
+    -- assertEqual "Output list does not match" expecteds (reverse outputEvents)
+
+--   where
+--     -- cons successive events onto the head of a list
+--     logEventsInTVar :: TVar [a] -> Event a -> MomentIO ()
+--     logEventsInTVar tv e = reactimate . fmap (atomically . modifyTVar tv . (:) ) $ e
 
 --------------------------------------------------------------------------------
 limOrder :: Order p v (Confirmation p v)
@@ -81,7 +93,7 @@ cancelInEs =
     ]
 
 reasonMessage = "Canceling placed limit order: CancelLimitOrder {acClientOID = OID {hw = 333, lw = 444}}\n"
-cancelExpectedAs = [ Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}]) ]
+cancelExpectedAs = [Nothing, Just (Advice (reasonMessage, ZipList [CancelLimitOrder {acClientOID = OID 333 444}])), Nothing, Nothing, Nothing]
 
 --------------------------------------------------------------------------------
 -- FIX ME! Compiler requires this type signature. Why? Monomorphism?
@@ -117,13 +129,18 @@ copyInEs =
     ]
 
 -- FIX ME! Compiler requires this type signature. Why? Monomorphism?
-copyExpectedAs :: forall p v. (Coin p, Coin v) => [StrategyAdvice (Action p v)]
+copyExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
 copyExpectedAs =
-    [ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))])
-    , Advice ("", ZipList [])
-      -- non-optimized: cancels and replaces with new order a volume increase on same price level
-    , Advice ("", ZipList [CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 2000) (Vol 3) (Just(OID 0 1))])
-    , Advice ("", ZipList [CancelLimitOrder (OID 0 1), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))])
+    [ Nothing
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))])
+    , Nothing
+    , Just $ Advice ("", ZipList [])
+    , Nothing
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))])
+    , Nothing
+    , Just $ Advice ("", ZipList [CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))])
     ]
 
+removeReasoning :: StrategyAdvice a -> StrategyAdvice a
+removeReasoning (Advice (r, a)) = Advice ("", a)
 --------------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import           System.IO                (hPutStr, hPutStrLn, stderr)
 import           Control.Exception.Base   (finally)
 import           Control.Monad            (void)
 import           Data.Maybe
+import           Data.List.Extended       (safeHead)
 import qualified Data.HashMap.Strict as H
 
 import           Reactive.Banana
@@ -121,7 +122,7 @@ dumbStrategy es = mdo
 
   placeOrder <- once strat eAny
   return $ unionWith const (unionWith (error "Conflict!") placeOrder forceCancel) noticeCancel
-
+    
 --------------------------------------------------------------------------------
 -- | Copies orderbook
 
@@ -129,13 +130,13 @@ data ActionState p v =
     ActionState 
         { openActionsMap :: H.HashMap (OrderSide, Price p) [OpenAction p v]
         , nextCOID   :: OrderID -- next available "Client Order ID"
-        }
+        } deriving Show
 
 data OpenAction price vol
     = OpenOrder
         { oaVolume    :: Vol vol
         , oaClientOID :: OrderID
-        , oaExecdVol  :: Vol vol }
+        , oaExecdVol  :: Vol vol } deriving Show
 
 emptyState = ActionState {openActionsMap = H.empty, nextCOID = OID 0 0}
 
@@ -151,8 +152,9 @@ copyBookStrategy es = mdo
     updateQuoteBook :: TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     updateQuoteBook e state = combineTargets (getTargets e) state
 
-    insertOpenAction :: OpenAction p v -> [OpenAction p v] -> [OpenAction p v]
-    insertOpenAction newOpenAction = (newOpenAction :) 
+    insertOpenAction :: OpenAction p v -> Maybe [OpenAction p v] -> Maybe [OpenAction p v]
+    insertOpenAction newOpenAction (Just as) = Just $ newOpenAction : as 
+    insertOpenAction newOpenAction Nothing   = Just [newOpenAction]
 
     getTargets :: TradingE p v q c -> [Target p v] 
     getTargets e = catMaybes $ fmap ($ toBook e) regions 
@@ -172,17 +174,24 @@ copyBookStrategy es = mdo
 
     combineTargets :: [Target p v] -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     combineTargets targets oldState = 
-        let (newAdvice, newState) = foldr addTarget' (mempty, oldState) targets
-            addTarget' t st = addTarget t (snd st) -- addTarget is independent of other current Advice
-            cleanupAdvice = removeOldLevels oldState newState
-         in (newAdvice <> cleanupAdvice, newState)
+        let (advice', state') = cleanupOldLevels targets oldState
+            -- addTarget is independent of other current Advice, depends only on state
+            addTarget' t (as, st) = let (as', st') = addTarget t st in (as <> as', st') 
+
+         in foldr addTarget' (advice', state') targets
     
-    removeOldLevels :: ActionState p v -> ActionState p v -> StrategyAdvice (Action p v)
-    removeOldLevels (ActionState{openActionsMap = old})(ActionState{openActionsMap = new}) =
-        let oldLevels = ZipList $ concat $ fmap snd $ H.toList (H.difference old new)
-            toCancellation = CancelLimitOrder . oaClientOID
-            removalActions = fmap toCancellation oldLevels
-         in Advice ("Remove old unmatched price-levels: " <> show (removalActions :: ZipList (Action p v)) , removalActions) 
+    cleanupOldLevels :: [Target p v] -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
+    cleanupOldLevels targets oldState@(ActionState {openActionsMap = oldActionsMap}) = 
+        let newKeysMap = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
+
+            differenceMap   = H.difference   oldActionsMap newKeysMap
+            intersectionMap = H.intersection oldActionsMap newKeysMap
+
+            removalActions = fmap toCancellation . ZipList . concat . fmap snd . H.toList $ differenceMap
+
+         in ( Advice ("Remove old unmatched price-levels: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
+            , oldState {openActionsMap = intersectionMap}
+            )
 
     addTarget :: Target p v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     addTarget (s, p, v) oldState
@@ -203,9 +212,9 @@ copyBookStrategy es = mdo
 
     addVol :: OrderSide -> Price p -> Vol v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     addVol sd p v oldState@(ActionState{openActionsMap = actionsMap, nextCOID = curOID@(OID hw lw)}) 
-        = (Advice ("Placing new order: " <> show newAction, ZipList [newAction]), newState)
+        = (Advice ("Placing new order: " <> show newAction  <> "\n", ZipList [newAction]), newState)
       where
-        newState = ActionState {openActionsMap = H.adjust (insertOpenAction newOpenAction) (sd,p) actionsMap, nextCOID = OID hw (lw+1)}
+        newState = ActionState {openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) actionsMap, nextCOID = OID hw (lw+1)}
         newAction     = NewLimitOrder sd p v (Just curOID)
         newOpenAction = OpenOrder v curOID (Vol 0)
 
@@ -215,12 +224,16 @@ copyBookStrategy es = mdo
         = (newAdvice, newState)
       where
         oldActions = ZipList $ H.lookupDefault [] (sd,p) actionsMap
-        removalActions = fmap toCancellation oldActions
-        toCancellation = CancelLimitOrder . oaClientOID
-        newAdvice = Advice ("Cancelling actions to subtract volume: " <> show (removalActions :: ZipList (Action p v)) , removalActions)
+        removalActions = toCancellation <$> oldActions
+        newAdvice = Advice ("Cancelling actions to subtract volume: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
 
         newState = oldState {openActionsMap = H.delete (sd, p) actionsMap}
 
+    toCancellation :: OpenAction p v -> Action p v
+    toCancellation = CancelLimitOrder . oaClientOID
+
+
 regions :: [QuoteBook p v q c -> Maybe (Target p v)]
-regions = []
+regions = [fmap (\q -> (side q, price q, volume q)) . safeHead . bids]
+
 
