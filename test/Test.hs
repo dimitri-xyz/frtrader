@@ -28,44 +28,17 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Output list does not match" cancelExpectedAs outputEvents
 
     , testCase "copyBookStrategy" $ do
-        outputEvents <- interpretFrameworks copyBookStrategy (Just <$> (copyInEs :: [TradingE p v q c]))  
+        outputEvents <- interpretFrameworks copyBookStrategy (copyInEs :: [Maybe(TradingE p v q c)])  
         assertEqual "Output list does not match" copyExpectedAs (fmap removeReasoning <$> outputEvents)
+
+    , testCase "binaryStrategy" $ do
+        outputEvents <- interpretFrameworks (uncurry binaryStrategy . split) (binaryIns :: [Maybe (Either (TradingE p v q c) (TradingE p v q c))])  
+        assertEqual "Output list does not match" binaryExpectedAs (fmap (fmap (fmap removeReasoning)) <$> outputEvents)
 
     ]
 
---------------------------------------------------------------------------------
--- compareOutputTest
---     :: forall p v q c output. (Eq output, Show output)
---     => ( Event (TradingE p v q c) -> MomentIO (Event output) ) 
---     -> [TradingE p v q c]
---     -> [output]
---     -> IO ()
-
--- compareOutputTest networkDescription inputs expecteds = do
---     outputEvents <- interpretFrameworks networkDescription (Just <$> inputs)  
---     assertEqual "Output list does not match" (Just <$> expecteds) outputEvents
-
--- interpret           :: (Event a -> Moment   (Event b)) -> [Maybe a] -> IO [Maybe b] 
--- interpretFrameworks :: (Event a -> MomentIO (Event b)) -> [Maybe a] -> IO [Maybe b] 
-
-    -- -- (inputHandlers, fireInput) <- newHandlerSet
-    -- -- -- create TVAR to hold final list of output events
-    -- -- tv <- newTVarIO []
-
-    -- network <- compile $ mdo
-    --     es <- fromHandlerSet inputHandlers
-    --     eAdvice <- networkDescription es 
-    --     logEventsInTVar tv eAdvice
-
-    -- activate network
-    -- sequence_ $ fmap fireInput inputs
-    -- outputEvents <- readTVarIO tv
-    -- assertEqual "Output list does not match" expecteds (reverse outputEvents)
-
---   where
---     -- cons successive events onto the head of a list
---     logEventsInTVar :: TVar [a] -> Event a -> MomentIO ()
---     logEventsInTVar tv e = reactimate . fmap (atomically . modifyTVar tv . (:) ) $ e
+removeReasoning :: StrategyAdvice a -> StrategyAdvice a
+removeReasoning (Advice (r, a)) = Advice ("", a)
 
 --------------------------------------------------------------------------------
 limOrder :: Order p v (Confirmation p v)
@@ -116,31 +89,43 @@ bk3 = QuoteBook {bids = [qb3,qb2], asks = [qa1], counter = undefined}
 bk4 = QuoteBook {bids = [qb4,qb2], asks = [],    counter = undefined}
 
 -- FIX ME! Compiler requires this type signature. Why? Monomorphism?
-copyInEs :: forall p v q c. (Coin p, Coin v) => [TradingE p v q c]
+copyInEs :: forall p v q c. (Coin p, Coin v) => [Maybe (TradingE p v q c)]
 copyInEs = 
-    [ TF (OrderFilled [])
-    , TB bk1
-    , TP (Placement limOrder)
-    , TB bk2
-    , TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
-    , TB bk3
-    , TP (Placement (MarketOrder {}))
-    , TB bk4
+    [ Nothing
+    , Just $ TF (OrderFilled [])
+    , Just $ TB bk1
+    , Just $ TP (Placement limOrder)
+    , Just $ TB bk2
+    , Nothing
+    , Nothing
+    , Just $ TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
+    , Just $ TB bk3
+    , Just $ TP (Placement (MarketOrder {}))
+    , Just $ TB bk4
     ]
 
 -- FIX ME! Compiler requires this type signature. Why? Monomorphism?
 copyExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
 copyExpectedAs =
     [ Nothing
+    , Nothing
     , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))])
     , Nothing
     , Just $ Advice ("", ZipList [])
+    , Nothing
+    , Nothing
     , Nothing
     , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))])
     , Nothing
     , Just $ Advice ("", ZipList [CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))])
     ]
 
-removeReasoning :: StrategyAdvice a -> StrategyAdvice a
-removeReasoning (Advice (r, a)) = Advice ("", a)
+--------------------------------------------------------------------------------
+
+binaryIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingE p v q c) (TradingE p v q c))]
+binaryIns = fmap Left <$> copyInEs
+
+binaryExpectedAs :: forall p v. (Coin p, Coin v) => [ Maybe ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)) )]
+binaryExpectedAs = fmap (\s -> (Nothing, Just s)) <$> copyExpectedAs
+
 --------------------------------------------------------------------------------

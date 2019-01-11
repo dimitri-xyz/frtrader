@@ -245,3 +245,13 @@ regions :: [QuoteBook p v q c -> Maybe (Target p v)]
 regions = [fmap (\q -> (side q, price q, volume q)) . safeHead . bids]
 
 
+binaryStrategy
+    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => Event (TradingE p v q c) -> Event (TradingE p v q c) 
+    -> m (Event (Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))) 
+binaryStrategy es1 es2 = fmap (\y -> (Nothing,Just y)) <$> copyBookStrategy es1
+
+
+-- copyBookStrategy
+--     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+--     => Event (TradingE p v q c) -> m (Event (StrategyAdvice (Action p v)))
