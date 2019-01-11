@@ -149,28 +149,19 @@ copyBookStrategy es = mdo
     (eNewAdvice, _) <- mapAccum emptyState (updateQuoteBook <$> filterE isQuoteBook es)
     return eNewAdvice
   where
-    updateQuoteBook :: TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    updateQuoteBook e state = combineTargets (getTargets e) state
-
-    insertOpenAction :: OpenAction p v -> Maybe [OpenAction p v] -> Maybe [OpenAction p v]
-    insertOpenAction newOpenAction (Just as) = Just $ newOpenAction : as 
-    insertOpenAction newOpenAction Nothing   = Just [newOpenAction]
-
-    getTargets :: TradingE p v q c -> [Target p v] 
-    getTargets e = catMaybes $ fmap ($ toBook e) regions 
-
-    getVol :: [OpenAction p v] -> Vol v
-    getVol oas = let requestedVol = sum $ map oaVolume   oas
-                     executedVol  = sum $ map oaExecdVol oas
-                  in requestedVol - executedVol
+    isQuoteBook :: TradingE p v q c -> Bool
+    isQuoteBook (TB book) = True
+    isQuoteBook _         = False
 
     toBook :: TradingE p v q c -> QuoteBook p v q c
     toBook (TB book) = book
     toBook ev        = error ("toBook Error: attempting to convert trading event to QuoteBook.")
 
-    isQuoteBook :: TradingE p v q c -> Bool
-    isQuoteBook (TB book) = True
-    isQuoteBook _         = False
+    updateQuoteBook :: TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
+    updateQuoteBook e state = combineTargets (getTargets e) state
+
+    getTargets :: TradingE p v q c -> [Target p v] 
+    getTargets e = catMaybes $ fmap ($ toBook e) regions 
 
     combineTargets :: [Target p v] -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     combineTargets targets oldState = 
@@ -221,14 +212,14 @@ copyBookStrategy es = mdo
             LT -> 
                 let (subAdv, oldState') = subtractVol Bid p (oldVol - v)  oldState
                     (addAdv, newState ) = addVol      Bid p (v - oldVol') oldState'
-                    oldVol' = getVol $ H.lookupDefault [] (s,p) (openActionsMap oldState')
+                    oldVol' = getStillOpenVol $ H.lookupDefault [] (s,p) (openActionsMap oldState')
                  in case compare v oldVol' of
                         EQ -> (subAdv, oldState')
                         GT -> (subAdv <> addAdv, newState)
                         LT -> error $ "addTarget: Could not subtract enough volume to go below or match target:"
                         
       where
-        oldVol  = getVol $ H.lookupDefault [] (s,p) (openActionsMap oldState)
+        oldVol  = getStillOpenVol $ H.lookupDefault [] (s,p) (openActionsMap oldState)
 
     addVol :: OrderSide -> Price p -> Vol v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     addVol sd p v oldState@(ActionState{openActionsMap = actionsMap, nextCOID = curOID@(OID hw lw)}) 
@@ -237,6 +228,17 @@ copyBookStrategy es = mdo
         newState = ActionState {openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) actionsMap, nextCOID = OID hw (lw+1)}
         newAction     = NewLimitOrder sd p v (Just curOID)
         newOpenAction = OpenOrder v curOID (Vol 0)
+
+    insertOpenAction :: OpenAction p v -> Maybe [OpenAction p v] -> Maybe [OpenAction p v]
+    insertOpenAction newOpenAction (Just as) = Just $ newOpenAction : as 
+    insertOpenAction newOpenAction Nothing   = Just [newOpenAction]
+
+    getStillOpenVol :: [OpenAction p v] -> Vol v
+    getStillOpenVol oas =
+        let requestedVol = sum $ map oaVolume   oas
+            executedVol  = sum $ map oaExecdVol oas
+         in requestedVol - executedVol
+
 
 
 regions :: [QuoteBook p v q c -> Maybe (Target p v)]
