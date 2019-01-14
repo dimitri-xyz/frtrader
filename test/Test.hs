@@ -28,11 +28,11 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Output list does not match" cancelExpectedAs outputEvents
 
     , testCase "copyBookStrategy" $ do
-        outputEvents <- interpretFrameworks copyBookStrategy (copyInEs :: [Maybe(TradingE p v q c)])  
+        outputEvents <- interpretFrameworks (selfUpdateState copyBookStrategy) (copyInEs :: [Maybe(TradingE p v q c)])  
         assertEqual "Output list does not match" copyExpectedAs (fmap removeReasoning <$> outputEvents)
 
-    , testCase "binaryStrategy" $ do
-        outputEvents <- interpretFrameworks (uncurry binaryStrategy . split) (binaryIns :: [Maybe (Either (TradingE p v q c) (TradingE p v q c))])  
+    , testCase "mirroringStrategy" $ do
+        outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (binaryIns :: [Maybe (Either (TradingE p v q c) (TradingE p v q c))])  
         assertEqual "Output list does not match" binaryExpectedAs (fmap (fmap (fmap removeReasoning)) <$> outputEvents)
 
     ]

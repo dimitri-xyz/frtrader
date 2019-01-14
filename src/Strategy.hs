@@ -142,12 +142,9 @@ emptyState = ActionState {openActionsMap = H.empty, nextCOID = OID 0 0}
 
 type Target p v = (OrderSide, Price p, Vol v)
 
-copyBookStrategy
-    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
-    => Event (TradingE p v q c) -> m (Event (StrategyAdvice (Action p v)))
-copyBookStrategy es = mdo
-    (eNewAdvice, _) <- mapAccum emptyState (updateQuoteBook <$> filterE isQuoteBook es)
-    return eNewAdvice
+copyBookStrategy :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
+copyBookStrategy es bSt = return $ (updateQuoteBook <$> (filterE isQuoteBook es)) `invApply` bSt
   where
     isQuoteBook :: TradingE p v q c -> Bool
     isQuoteBook (TB book) = True
@@ -245,13 +242,46 @@ regions :: [QuoteBook p v q c -> Maybe (Target p v)]
 regions = [fmap (\q -> (side q, price q, volume q)) . safeHead . bids]
 
 
-binaryStrategy
+
+
+mirroringStrategy
     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c) -> Event (TradingE p v q c) 
     -> m (Event (Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))) 
-binaryStrategy es1 es2 = fmap (\y -> (Nothing,Just y)) <$> copyBookStrategy es1
+mirroringStrategy es1 es2 = mdo
+    bSt <- stepper emptyState $ unionWith (error "State update must not have happenned at the same time.") (snd <$> eCopy) (snd <$> eFill)
+    eCopy <- copyBookStrategy es1 bSt
+    eFill <- refillStrategy   es2 bSt
+    return $ unionWith (\p q ->(fst p, snd q)) (toFst . fst <$> eFill) (toSnd . fst <$> eCopy)
+  where
+    toFst x = (Just x, Nothing) 
+    toSnd x = (Nothing, Just x)
 
 
--- copyBookStrategy
---     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
---     => Event (TradingE p v q c) -> m (Event (StrategyAdvice (Action p v)))
+refillStrategy :: MonadMoment m => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
+refillStrategy _ _ = return never
+
+
+invApply :: Event (a -> b) -> Behavior a -> Event b 
+invApply es b = (flip ($)) <$> b <@> es 
+
+
+selfUpdateState
+    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => (Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v)) )
+    ->  Event (TradingE p v q c) -> m (Event (StrategyAdvice (Action p v))) 
+selfUpdateState strategy es = mdo
+    bState <- stepper emptyState (snd <$> ePair)
+    ePair  <- strategy es bState
+    return (fst <$> ePair)
+
+
+
+
+-- ------------------------------------------------
+-- unions :: [Event (a -> a)] -> Event (a -> a)
+-- unionWith :: (a -> a -> a) -> Event a -> Event a -> Event a
+-- stepper :: MonadMoment m => a -> Event a -> m (Behavior a) 
+-- accumE :: MonadMoment m => a -> Event (a -> a) -> m (Event a) 
+-- accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a) 
+-- mapAccum' :: MonadMoment m => acc -> Event (acc -> (x,acc)) -> m (Event x, Behavior acc)
