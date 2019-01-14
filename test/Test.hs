@@ -121,11 +121,35 @@ copyExpectedAs =
     ]
 
 --------------------------------------------------------------------------------
-
 binaryIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingE p v q c) (TradingE p v q c))]
-binaryIns = fmap Left <$> copyInEs
+binaryIns =
+    [ Nothing
+    , Just $ Left $ TF (OrderFilled [])
+    , Just $ Left $ TB bk1
+    , Just $ Left $ TP (Placement limOrder)
+    , Just $ Left $ TB bk2
+    , Nothing
+    , Just    $ Right $ TF (OrderFilled [Fill 0 Nothing (Vol 0.2) (Price 2000) (Cost 0.4) (OID 0 0)])
+    , Just $ Left $ TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
+    , Just $ Left $ TB bk3
+    , Just $ Left $ TP (Placement (MarketOrder {}))
+    , Just $ Left $ TB bk4
+    ]
+
 
 binaryExpectedAs :: forall p v. (Coin p, Coin v) => [ Maybe ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)) )]
-binaryExpectedAs = fmap (\s -> (Nothing, Just s)) <$> copyExpectedAs
+binaryExpectedAs = -- fmap (\s -> (Nothing, Just s)) <$> copyExpectedAs
+    [ Nothing
+    , Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))]))
+    , Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList []))
+    , Nothing
+    , Just $ (Just (Advice ("",ZipList {getZipList = []})),Nothing) --
+    , Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))]))
+    , Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList [CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))]))
+    ]
 
 --------------------------------------------------------------------------------

@@ -242,6 +242,15 @@ regions :: [QuoteBook p v q c -> Maybe (Target p v)]
 regions = [fmap (\q -> (side q, price q, volume q)) . safeHead . bids]
 
 
+{-
+FIX ME!
+There's a synchronization bug on this strategy "as is". When an order fill is detected. The open order state is immediately updated,
+but we may still have to re-fill the account balances. If, in this interval, another orderbook event is issued, the
+strategy will ask for the amount sold to be put on sale *again* even though we have not yet re-filled it.
+To avoid this, we need to somehow keep track of the balances that are pending refills (and take these into consideration 
+before asking for more placements).
+
+-}
 
 
 mirroringStrategy
@@ -258,8 +267,12 @@ mirroringStrategy es1 es2 = mdo
     toSnd x = (Nothing, Just x)
 
 
-refillStrategy :: MonadMoment m => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
-refillStrategy _ _ = return never
+refillStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
+refillStrategy es bState = return $ (reFill <$> es) `invApply` bState
+  where
+    reFill :: Coin p => TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
+    -- reFill (TF (OrderFilled [Fill _ _ fVol fPrice _ oid])) st = (mempty, st{openActionsMap = H.adjust tail (Bid, fPrice) (openActionsMap st)})
+    reFill _ st = (mempty, st)
 
 
 invApply :: Event (a -> b) -> Behavior a -> Event b 
