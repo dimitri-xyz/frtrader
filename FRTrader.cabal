@@ -27,6 +27,7 @@ library
                      , bytestring
                      , unordered-containers
                      , hashable
+                     , mtl
 
 test-suite test-FRTrader
   type:                exitcode-stdio-1.0

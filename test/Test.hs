@@ -117,7 +117,7 @@ copyExpectedAs =
     , Nothing
     , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))])
     , Nothing
-    , Just $ Advice ("", ZipList [CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))])
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)])
     ]
 
 --------------------------------------------------------------------------------
@@ -149,7 +149,7 @@ binaryExpectedAs = -- fmap (\s -> (Nothing, Just s)) <$> copyExpectedAs
     , Nothing
     , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))]))
     , Nothing
-    , Just $ (Nothing, Just $ Advice ("", ZipList [CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0), NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2))]))
+    , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)]))
     ]
 
 --------------------------------------------------------------------------------

@@ -10,6 +10,7 @@ module Strategy where
 import           System.IO                (hPutStr, hPutStrLn, stderr)
 import           Control.Exception.Base   (finally)
 import           Control.Monad            (void)
+import           Control.Monad.State 
 import           Data.Maybe
 import           Data.List.Extended       (safeHead)
 import qualified Data.HashMap.Strict as H
@@ -132,6 +133,8 @@ data ActionState p v =
         , nextCOID   :: OrderID -- next available "Client Order ID"
         } deriving Show
 
+type ExchangeState p v = State (ActionState p v)
+
 data OpenAction price vol
     = OpenOrder
         { oaVolume    :: Vol vol
@@ -144,8 +147,10 @@ type Target p v = (OrderSide, Price p, Vol v)
 
 copyBookStrategy :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
-copyBookStrategy es bSt = return $ (updateQuoteBook <$> (filterE isQuoteBook es)) `invApply` bSt
+copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
   where
+    eUpdateState = runState . updateQuoteBook <$> filterE isQuoteBook es
+
     isQuoteBook :: TradingE p v q c -> Bool
     isQuoteBook (TB book) = True
     isQuoteBook _         = False
@@ -154,77 +159,88 @@ copyBookStrategy es bSt = return $ (updateQuoteBook <$> (filterE isQuoteBook es)
     toBook (TB book) = book
     toBook ev        = error ("toBook Error: attempting to convert trading event to QuoteBook.")
 
-    updateQuoteBook :: TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    updateQuoteBook e state = combineTargets (getTargets e) state
+    updateQuoteBook :: TradingE p v q c -> ExchangeState p v (StrategyAdvice (Action p v))
+    updateQuoteBook = combineTargets . getTargets
 
     getTargets :: TradingE p v q c -> [Target p v] 
     getTargets e = catMaybes $ fmap ($ toBook e) regions 
 
-    combineTargets :: [Target p v] -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    combineTargets targets oldState = 
-        let (advice', state') = cleanupOldLevels targets oldState
-            -- addTarget is independent of other current Advice, depends only on state
-            addTarget' t (as, st) = let (as', st') = addTarget t st in (as <> as', st') 
+    combineTargets :: [Target p v] -> ExchangeState p v (StrategyAdvice (Action p v))
+    combineTargets targets = do
+        a  <- cleanupOldLevels targets
+        as <- mapM addTarget targets
+        return (foldr mappend a as)
 
-         in foldr addTarget' (advice', state') targets
-    
     -- Cancels ALL open actions on ALL price-levels that are not on the new targets list.
-    cleanupOldLevels :: [Target p v] -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    cleanupOldLevels targets oldState@(ActionState {openActionsMap = oldActionsMap}) = 
-        (newAdvice, oldState {openActionsMap = newActionMap})
-      where
-        newKeysMap = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
+    cleanupOldLevels :: [Target p v] -> ExchangeState p v (StrategyAdvice (Action p v))
+    cleanupOldLevels targets = do
+        oldState <- get
+        let oldActionsMap = openActionsMap oldState
+            newKeysMap    = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
 
-        differenceMap   = H.difference   oldActionsMap newKeysMap
-        intersectionMap = H.intersection oldActionsMap newKeysMap
+            differenceMap   = H.difference   oldActionsMap newKeysMap
+            intersectionMap = H.intersection oldActionsMap newKeysMap
 
-        oldActions     = ZipList . concat . fmap snd . H.toList $ differenceMap
-        removalActions = toCancellation <$> oldActions
+            oldActions     = ZipList . concat . fmap snd . H.toList $ differenceMap
+            removalActions = toCancellation <$> oldActions
 
-        newAdvice    = Advice ("Remove old unmatched price-levels: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
-        newActionMap = intersectionMap
+            newActionMap = intersectionMap
+            newAdvice    = Advice ("Remove old unmatched price-levels: "
+                                    <> show (removalActions :: ZipList (Action p v)) 
+                                    <> "\n", removalActions)
+
+        put oldState{openActionsMap = newActionMap}
+        return newAdvice
 
     -- subtractVol has to subtract *at least* the amount of volume requested. It MAY cancel more, but it should avoid unnecessary cancellations.
     -- TO DO: This is currently a naïve implementation. It just cancels *all* pending orders.
-    subtractVol :: OrderSide -> Price p -> Vol v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    subtractVol sd p v oldState@(ActionState{openActionsMap = oldActionsMap}) =
-        (newAdvice, oldState {openActionsMap = newActionMap})
-      where
-        oldActions     = ZipList $ H.lookupDefault [] (sd,p) oldActionsMap
-        removalActions = toCancellation <$> oldActions
-
-        newAdvice    = Advice ("Cancelling all actions to subtract volume: " <> show (removalActions :: ZipList (Action p v)) <> "\n", removalActions)
-        newActionMap = H.delete (sd, p) oldActionsMap
-
-
+    subtractVol :: OrderSide -> Price p -> Vol v -> ExchangeState p v (StrategyAdvice (Action p v))
+    subtractVol sd p v = do
+        state <- get
+        let oldActionsMap  = openActionsMap state
+            oldActions     = ZipList $ H.lookupDefault [] (sd,p) oldActionsMap
+            removalActions = toCancellation <$> oldActions
+            newActionMap   = H.delete (sd, p) oldActionsMap
+            newAdvice      = Advice ( "Cancelling all actions to subtract volume: " 
+                                      <> show (removalActions :: ZipList (Action p v)) 
+                                      <> "\n"
+                                    , removalActions)
+        put state{openActionsMap = newActionMap}
+        return newAdvice
+        
     toCancellation :: OpenAction p v -> Action p v
     toCancellation = CancelLimitOrder . oaClientOID
 
-
-    addTarget :: Target p v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    addTarget (s, p, v) oldState
-        = case compare v oldVol of
-            EQ -> (mempty, oldState)
-            GT -> addVol Bid p (v - oldVol) oldState -- either creating new price-level or increasing volume in an existing one
-            LT -> 
-                let (subAdv, oldState') = subtractVol Bid p (oldVol - v)  oldState
-                    (addAdv, newState ) = addVol      Bid p (v - oldVol') oldState'
-                    oldVol' = getStillOpenVol $ H.lookupDefault [] (s,p) (openActionsMap oldState')
-                 in case compare v oldVol' of
-                        EQ -> (subAdv, oldState')
-                        GT -> (subAdv <> addAdv, newState)
-                        LT -> error $ "addTarget: Could not subtract enough volume to go below or match target:"
-                        
+    addTarget :: Target p v -> ExchangeState p v (StrategyAdvice (Action p v))
+    addTarget (sd, p, v) = do
+        oldVol <- getVol <$> get
+        case compare v oldVol of
+            EQ -> return mempty
+            GT -> addVol sd p (v - oldVol) -- either creating new price-level or increasing volume in an existing one
+            LT -> do
+                subAdv <- subtractVol sd p (oldVol - v)
+                oldVol' <- getVol <$> get
+                case compare v oldVol' of
+                    LT -> error $ "addTarget: Could not subtract enough volume to go below or match target:"
+                    EQ -> return subAdv
+                    GT -> do
+                        addAdv <- addVol sd p (v - oldVol')
+                        return (subAdv <> addAdv)
       where
-        oldVol  = getStillOpenVol $ H.lookupDefault [] (s,p) (openActionsMap oldState)
+        getVol state = getStillOpenVol $ H.lookupDefault [] (sd,p) (openActionsMap state)
 
-    addVol :: OrderSide -> Price p -> Vol v -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    addVol sd p v oldState@(ActionState{openActionsMap = actionsMap, nextCOID = curOID@(OID hw lw)}) 
-        = (Advice ("Placing new order: " <> show newAction  <> "\n", ZipList [newAction]), newState)
-      where
-        newState = ActionState {openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) actionsMap, nextCOID = OID hw (lw+1)}
-        newAction     = NewLimitOrder sd p v (Just curOID)
-        newOpenAction = OpenOrder v curOID (Vol 0)
+    addVol :: OrderSide -> Price p -> Vol v -> ExchangeState p v (StrategyAdvice (Action p v))
+    addVol sd p v = do
+        state <- get
+        let curOID@(OID hw lw) = nextCOID state
+            oldActionsMap = openActionsMap state
+            newAction     = NewLimitOrder sd p v (Just $ curOID)
+            newOpenAction = OpenOrder v curOID (Vol 0)
+            newState      = 
+                state { openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) oldActionsMap
+                      , nextCOID = OID hw (lw+1)}
+        put newState
+        return $ Advice ("Placing new order: " <> show newAction  <> "\n", ZipList [newAction])
 
     insertOpenAction :: OpenAction p v -> Maybe [OpenAction p v] -> Maybe [OpenAction p v]
     insertOpenAction newOpenAction (Just as) = Just $ newOpenAction : as 
@@ -265,7 +281,6 @@ mirroringStrategy es1 es2 = mdo
   where
     toFst x = (Just x, Nothing) 
     toSnd x = (Nothing, Just x)
-
 
 refillStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
 refillStrategy es bState = return $ (reFill <$> es) `invApply` bState
