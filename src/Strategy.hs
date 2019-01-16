@@ -129,11 +129,12 @@ dumbStrategy es = mdo
 
 data ActionState p v = 
     ActionState 
-        { openActionsMap :: H.HashMap (OrderSide, Price p) [OpenAction p v]
-        , nextCOID   :: OrderID -- next available "Client Order ID"
+        { openActionsMap   :: H.HashMap (OrderSide, Price p) [OpenAction p v]
+        , nextCOID         :: OrderID  -- ^ next available "Client Order ID"
+        , realizedExposure :: [Vol v] -- ^ one per region: negative = we are oversold, positive = we are overbought
         } deriving Show
 
-type ExchangeState p v = State (ActionState p v)
+type MarketState p v = State (ActionState p v)
 
 data OpenAction price vol
     = OpenOrder
@@ -141,9 +142,18 @@ data OpenAction price vol
         , oaClientOID :: OrderID
         , oaExecdVol  :: Vol vol } deriving Show
 
-emptyState = ActionState {openActionsMap = H.empty, nextCOID = OID 0 0}
+emptyState :: forall p v. (Coin p, Coin v) => ActionState p v
+emptyState = 
+    ActionState
+        { openActionsMap = H.empty
+        , nextCOID = OID 0 0
+        , realizedExposure = replicate (length (regions :: [Vol v -> QuoteBook p v q c -> Maybe (Target p v)])) (Vol (0 :: v))
+        }
 
 type Target p v = (OrderSide, Price p, Vol v)
+
+regions :: forall p v q c. (Coin p, Coin v) => [Vol v -> QuoteBook p v q c -> Maybe (Target p v)]
+regions =  [bestBid (Vol 3)]
 
 copyBookStrategy :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
@@ -159,20 +169,22 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
     toBook (TB book) = book
     toBook ev        = error ("toBook Error: attempting to convert trading event to QuoteBook.")
 
-    updateQuoteBook :: TradingE p v q c -> ExchangeState p v (StrategyAdvice (Action p v))
-    updateQuoteBook = combineTargets . getTargets
+    updateQuoteBook :: TradingE p v q c -> MarketState p v (StrategyAdvice (Action p v))
+    updateQuoteBook ev = do
+        exposures <- gets realizedExposure
+        combineTargets (getTargets exposures ev)
 
-    getTargets :: TradingE p v q c -> [Target p v] 
-    getTargets e = catMaybes $ fmap ($ toBook e) regions 
+    getTargets :: [Vol v] -> TradingE p v q c -> [Target p v] 
+    getTargets exposures e = catMaybes $ fmap ($ toBook e) (zipWith ($) regions exposures) 
 
-    combineTargets :: [Target p v] -> ExchangeState p v (StrategyAdvice (Action p v))
+    combineTargets :: [Target p v] -> MarketState p v (StrategyAdvice (Action p v))
     combineTargets targets = do
         a  <- cleanupOldLevels targets
         as <- mapM addTarget targets
         return (foldr mappend a as)
 
     -- Cancels ALL open actions on ALL price-levels that are not on the new targets list.
-    cleanupOldLevels :: [Target p v] -> ExchangeState p v (StrategyAdvice (Action p v))
+    cleanupOldLevels :: [Target p v] -> MarketState p v (StrategyAdvice (Action p v))
     cleanupOldLevels targets = do
         oldState <- get
         let oldActionsMap = openActionsMap oldState
@@ -194,7 +206,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
 
     -- subtractVol has to subtract *at least* the amount of volume requested. It MAY cancel more, but it should avoid unnecessary cancellations.
     -- TO DO: This is currently a naïve implementation. It just cancels *all* pending orders.
-    subtractVol :: OrderSide -> Price p -> Vol v -> ExchangeState p v (StrategyAdvice (Action p v))
+    subtractVol :: OrderSide -> Price p -> Vol v -> MarketState p v (StrategyAdvice (Action p v))
     subtractVol sd p v = do
         state <- get
         let oldActionsMap  = openActionsMap state
@@ -211,7 +223,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
     toCancellation :: OpenAction p v -> Action p v
     toCancellation = CancelLimitOrder . oaClientOID
 
-    addTarget :: Target p v -> ExchangeState p v (StrategyAdvice (Action p v))
+    addTarget :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
     addTarget (sd, p, v) = do
         oldVol <- getVol <$> get
         case compare v oldVol of
@@ -229,7 +241,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
       where
         getVol state = getStillOpenVol $ H.lookupDefault [] (sd,p) (openActionsMap state)
 
-    addVol :: OrderSide -> Price p -> Vol v -> ExchangeState p v (StrategyAdvice (Action p v))
+    addVol :: OrderSide -> Price p -> Vol v -> MarketState p v (StrategyAdvice (Action p v))
     addVol sd p v = do
         state <- get
         let curOID@(OID hw lw) = nextCOID state
@@ -251,11 +263,6 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
         let requestedVol = sum $ map oaVolume   oas
             executedVol  = sum $ map oaExecdVol oas
          in requestedVol - executedVol
-
-
-
-regions :: [QuoteBook p v q c -> Maybe (Target p v)]
-regions = [fmap (\q -> (side q, price q, volume q)) . safeHead . bids]
 
 
 {-
@@ -313,3 +320,6 @@ selfUpdateState strategy es = mdo
 -- accumE :: MonadMoment m => a -> Event (a -> a) -> m (Event a) 
 -- accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a) 
 -- mapAccum' :: MonadMoment m => acc -> Event (acc -> (x,acc)) -> m (Event x, Behavior acc)
+
+bestBid :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> Maybe (Target p v)
+bestBid (Vol maxExposure) (Vol realizedExposure) = fmap (\q -> (side q, price q, min (Vol $ maxExposure - realizedExposure) (volume q) )) . safeHead . bids
