@@ -1,9 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE RecursiveDo                #-}
-{-# LANGUAGE StandaloneDeriving         #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveGeneric              #-}
-
 
 module Strategy where
 
@@ -167,7 +163,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
 
     toBook :: TradingE p v q c -> QuoteBook p v q c
     toBook (TB book) = book
-    toBook ev        = error ("toBook Error: attempting to convert trading event to QuoteBook.")
+    toBook ev        = error "toBook Error: attempting to convert trading event to QuoteBook."
 
     updateQuoteBook :: TradingE p v q c -> MarketState p v (StrategyAdvice (Action p v))
     updateQuoteBook ev = do
@@ -193,7 +189,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
             differenceMap   = H.difference   oldActionsMap newKeysMap
             intersectionMap = H.intersection oldActionsMap newKeysMap
 
-            oldActions     = ZipList . concat . fmap snd . H.toList $ differenceMap
+            oldActions     = ZipList . concatMap snd . H.toList $ differenceMap
             removalActions = toCancellation <$> oldActions
 
             newActionMap = intersectionMap
@@ -225,15 +221,15 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
 
     addTarget :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
     addTarget (sd, p, v) = do
-        oldVol <- getVol <$> get
+        oldVol <- gets getVol
         case compare v oldVol of
             EQ -> return mempty
             GT -> addVol sd p (v - oldVol) -- either creating new price-level or increasing volume in an existing one
             LT -> do
                 subAdv <- subtractVol sd p (oldVol - v)
-                oldVol' <- getVol <$> get
+                oldVol' <- gets getVol
                 case compare v oldVol' of
-                    LT -> error $ "addTarget: Could not subtract enough volume to go below or match target:"
+                    LT -> error "addTarget: Could not subtract enough volume to go below or match target:"
                     EQ -> return subAdv
                     GT -> do
                         addAdv <- addVol sd p (v - oldVol')
@@ -246,7 +242,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
         state <- get
         let curOID@(OID hw lw) = nextCOID state
             oldActionsMap = openActionsMap state
-            newAction     = NewLimitOrder sd p v (Just $ curOID)
+            newAction     = NewLimitOrder sd p v (Just curOID)
             newOpenAction = OpenOrder v curOID (Vol 0)
             newState      = 
                 state { openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) oldActionsMap
@@ -298,7 +294,7 @@ refillStrategy es bState = return $ (reFill <$> es) `invApply` bState
 
 
 invApply :: Event (a -> b) -> Behavior a -> Event b 
-invApply es b = (flip ($)) <$> b <@> es 
+invApply es b = flip ($) <$> b <@> es 
 
 
 selfUpdateState

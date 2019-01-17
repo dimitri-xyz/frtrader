@@ -33,6 +33,29 @@ Matching is per "price-region", this is additive on targets. In other words, two
 
 Notice that this is distinct from order placement. I cannot combine two StrategyAdvice placement actions into a single order because each orther would have a distinct client_oid and then I would not be able to only cancel part of an order when given that client_oid in a cancellation request. But this is different from the targets (and the targets are going to be recalculated at each QuoteBook event anyway).
 
+#### Update 2019-01-17
+
+### Exposure Control
+
+Turns out, the pair or strategies copyBook/refill as originally designed is not sufficient. The refill strategy is implementing an immediate state update, which will cause the following bug as described in "Strategy.hs"
+
+> {-
+> FIX ME!
+> There's a synchronization bug on this strategy "as is". When an order fill is detected. The open order state is immediately updated,
+> but we may still have to re-fill the account balances. If, in this interval, another orderbook event is issued, the
+> strategy will ask for the amount sold to be put on sale *again* even though we have not yet re-filled it.
+> To avoid this, we need to somehow keep track of the balances that are pending refills (and take these into consideration 
+> before asking for more placements).
+> -}
+
+We need to also keep track of "realized exposure". Once one of our orders is executed in the mirrored book, it disappears from open actions (as it should be), but we still have its exposure until it get refilled.
+
+Unfortunately, keeping track of exposure on a "per price region" sense is very complicated, because we need to keep track of which refills have cancelled which exposure. This seems like over engineering! At the same time, we will soon have to deploy strategies (for new tokens) that will have multiple price targets, so it doesn't make sense to completely rip out the current mechanism. I have decided to go for a compromise:
+
+1. We only keep track of a single global exposure value for now. All targets will share this exposure. The eliminates the need for tracking which refills eliminated whose exposure.
+2. One QuoteBook event can fire multiple targets. The targets must all know about it each other to collaboratively control exposure, but multiple targets can be issued.
+
+This greatly simplifies the refill strategy and the new "exposure control" strategy, while keeping the current multiple target dispatch mechanism that we will very soon (it's the next strategy we will offer) need.
 
 
 
