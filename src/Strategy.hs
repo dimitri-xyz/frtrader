@@ -127,7 +127,7 @@ data ActionState p v =
     ActionState 
         { openActionsMap   :: H.HashMap (OrderSide, Price p) [OpenAction p v]
         , nextCOID         :: OrderID  -- ^ next available "Client Order ID"
-        , realizedExposure :: [Vol v] -- ^ one per region: negative = we are oversold, positive = we are overbought
+        , realizedExposure :: Vol v    -- ^ negative = we are oversold, positive = we are overbought
         } deriving Show
 
 type MarketState p v = State (ActionState p v)
@@ -143,13 +143,10 @@ emptyState =
     ActionState
         { openActionsMap = H.empty
         , nextCOID = OID 0 0
-        , realizedExposure = replicate (length (regions :: [Vol v -> QuoteBook p v q c -> Maybe (Target p v)])) (Vol (0 :: v))
+        , realizedExposure = Vol (0 :: v)
         }
 
 type Target p v = (OrderSide, Price p, Vol v)
-
-regions :: forall p v q c. (Coin p, Coin v) => [Vol v -> QuoteBook p v q c -> Maybe (Target p v)]
-regions =  [bestBid (Vol 3)]
 
 copyBookStrategy :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
@@ -170,8 +167,8 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
         exposures <- gets realizedExposure
         combineTargets (getTargets exposures ev)
 
-    getTargets :: [Vol v] -> TradingE p v q c -> [Target p v] 
-    getTargets exposures e = catMaybes $ fmap ($ toBook e) (zipWith ($) regions exposures) 
+    getTargets :: Vol v -> TradingE p v q c -> [Target p v] 
+    getTargets exposure ev = issueTargets maxExposure exposure (toBook ev)
 
     combineTargets :: [Target p v] -> MarketState p v (StrategyAdvice (Action p v))
     combineTargets targets = do
@@ -317,5 +314,8 @@ selfUpdateState strategy es = mdo
 -- accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a) 
 -- mapAccum' :: MonadMoment m => acc -> Event (acc -> (x,acc)) -> m (Event x, Behavior acc)
 
-bestBid :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> Maybe (Target p v)
-bestBid (Vol maxExposure) (Vol realizedExposure) = fmap (\q -> (side q, price q, min (Vol $ maxExposure - realizedExposure) (volume q) )) . safeHead . bids
+issueTargets :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> [Target p v]
+issueTargets (Vol maxExposure) (Vol realizedExposure) = maybe [] (:[]) . fmap (\q -> (side q, price q, min (Vol $ maxExposure - realizedExposure) (volume q) )) . safeHead . bids
+
+maxExposure :: Coin v => Vol v
+maxExposure = Vol 3
