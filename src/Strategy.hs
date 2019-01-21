@@ -257,6 +257,22 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
             executedVol  = sum $ map oaExecdVol oas
          in requestedVol - executedVol
 
+--------------------------------------------------------------------------------
+-- | Updates current exposure and profit/loss
+
+exposureControl :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (ActionState p v))
+exposureControl es bState = return (eUpdateState `invApply` bState)
+  where
+    eUpdateState = updateExposure <$> filterE isFill es
+
+    isFill :: TradingE p v q c -> Bool
+    isFill (TF _) = True
+    isFill _      = False
+
+updateExposure :: forall p v q c. (Coin p, Coin v) => TradingE p v q c -> ActionState p v -> ActionState p v
+updateExposure es bState = bState
+
 
 {-
 FIX ME!
@@ -274,13 +290,20 @@ mirroringStrategy
     => Event (TradingE p v q c) -> Event (TradingE p v q c) 
     -> m (Event (Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))) 
 mirroringStrategy es1 es2 = mdo
-    bSt <- stepper emptyState $ unionWith (error "State update must not have happenned at the same time.") (snd <$> eCopy) (snd <$> eFill)
-    eCopy <- copyBookStrategy es1 bSt
-    eFill <- refillStrategy   es2 bSt
+    bState <- stepper emptyState $ 
+                unionWith errorSimultaneousUpdate (snd <$> eCopy) $
+                unionWith errorSimultaneousUpdate (snd <$> eFill) eExpo
+    eCopy  <- copyBookStrategy es1 bState
+    eFill  <- refillStrategy   es2 bState
+    eExpo  <- exposureControl  es1 bState
     return $ unionWith (\p q ->(fst p, snd q)) (toFst . fst <$> eFill) (toSnd . fst <$> eCopy)
   where
     toFst x = (Just x, Nothing) 
     toSnd x = (Nothing, Just x)
+    errorSimultaneousUpdate = error "State updates must not have happenned at the same time."
+
+--------------------------------------------------------------------------------
+-- | places orders to refill balances that were depleted from executed orders
 
 refillStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
 refillStrategy es bState = return $ (reFill <$> es) `invApply` bState
@@ -302,7 +325,6 @@ selfUpdateState strategy es = mdo
     bState <- stepper emptyState (snd <$> ePair)
     ePair  <- strategy es bState
     return (fst <$> ePair)
-
 
 
 
