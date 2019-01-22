@@ -28,8 +28,16 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Output list does not match" cancelExpectedAs outputEvents
 
     , testCase "copyBookStrategy" $ do
-        outputEvents <- interpretFrameworks (selfUpdateState copyBookStrategy) (copyInEs :: [Maybe(TradingE p v q c)])  
-        assertEqual "Output list does not match" copyExpectedAs (fmap removeReasoning <$> outputEvents)
+        outputPairs <- interpretFrameworks (selfUpdateState copyBookStrategy emptyState) (copyInEs :: [Maybe(TradingE p v q c)])  
+        let outputActions = fmap fst <$> outputPairs
+        assertEqual "Output list does not match" copyExpectedAs (fmap removeReasoning <$> outputActions)
+
+    , testCase "refillAsksStrategy" $ do
+        outputPairs <- interpretFrameworks (selfUpdateState refillAsksStrategy emptyState) (refillInEs :: [Maybe(TradingE p v q c)])
+        let outputActions = fmap fst <$> outputPairs
+            outputStates  = fmap snd <$> outputPairs
+        assertEqual "Output list does not match"        refillExpectedAs (fmap removeReasoning <$> outputActions)
+        assertEqual "Final output state does not match" refillFinalState (last outputStates)
 
     , testCase "mirroringStrategy" $ do
         outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (binaryIns :: [Maybe (Either (TradingE p v q c) (TradingE p v q c))])  
@@ -119,6 +127,39 @@ copyExpectedAs =
     , Nothing
     , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)])
     ]
+
+--------------------------------------------------------------------------------
+
+refillInEs :: forall p v q c. (Coin p, Coin v) => [Maybe (TradingE p v q c)]
+refillInEs = 
+    [ Nothing
+    , Just $ TB bk2
+    , Just $ TF (OrderFilled [Fill 0 Nothing (Vol 1) (Price 1000) (Cost 0.02) (OID 0 0)])
+    , Just $ TP (Placement limOrder)
+    , Nothing
+    , Just $ TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
+    , Just $ TF (OrderFilled [Fill 1 Nothing (Vol 2) (Price 1500) (Cost 0) (OID 0 1), Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0)])
+    ]
+
+refillExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
+refillExpectedAs =
+    [ Nothing
+    , Just mempty
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1000) (Vol 1) (Just(OID 0 0))])
+    , Just mempty
+    , Nothing
+    , Just mempty
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 2) (Just(OID 0 0)), NewLimitOrder Bid (Price 1000) (Vol 3) (Just(OID 0 0)) ])
+    -- , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))])
+    -- , Nothing
+    -- , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)])
+    -- , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))])
+    -- , Nothing
+    ]
+
+
+refillFinalState :: forall p v. (Coin p, Coin v) => Maybe (ActionState p v)
+refillFinalState = Just emptyState
 
 --------------------------------------------------------------------------------
 binaryIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingE p v q c) (TradingE p v q c))]

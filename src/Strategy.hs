@@ -128,15 +128,15 @@ data ActionState p v =
         { openActionsMap   :: H.HashMap (OrderSide, Price p) [OpenAction p v]
         , nextCOID         :: OrderID  -- ^ next available "Client Order ID"
         , realizedExposure :: Vol v    -- ^ negative = we are oversold, positive = we are overbought
-        } deriving Show
+        } deriving (Show, Eq)
 
 type MarketState p v = State (ActionState p v)
 
 data OpenAction price vol
-    = OpenOrder
+    = OpenAction
         { oaVolume    :: Vol vol
         , oaClientOID :: OrderID
-        , oaExecdVol  :: Vol vol } deriving Show
+        , oaExecdVol  :: Vol vol } deriving (Show, Eq)
 
 emptyState :: forall p v. (Coin p, Coin v) => ActionState p v
 emptyState = 
@@ -240,7 +240,7 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
         let curOID@(OID hw lw) = nextCOID state
             oldActionsMap = openActionsMap state
             newAction     = NewLimitOrder sd p v (Just curOID)
-            newOpenAction = OpenOrder v curOID (Vol 0)
+            newOpenAction = OpenAction v curOID (Vol 0)
             newState      = 
                 state { openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) oldActionsMap
                       , nextCOID = OID hw (lw+1)}
@@ -264,15 +264,15 @@ exposureControl :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (ActionState p v))
 exposureControl es bState = return (eUpdateState `invApply` bState)
   where
-    eUpdateState = updateExposure <$> filterE isFill es
+    eUpdateState = updateExp <$> filterE isFill es
+    updateExp ev = execState (updateAskExposure ev)
 
     isFill :: TradingE p v q c -> Bool
     isFill (TF _) = True
     isFill _      = False
 
-updateExposure :: forall p v q c. (Coin p, Coin v) => TradingE p v q c -> ActionState p v -> ActionState p v
-updateExposure es bState = bState
-
+updateAskExposure :: forall p v q c. (Coin p, Coin v) => TradingE p v q c -> MarketState p v ()
+updateAskExposure ev = return ()
 
 {-
 FIX ME!
@@ -293,9 +293,9 @@ mirroringStrategy es1 es2 = mdo
     bState <- stepper emptyState $ 
                 unionWith errorSimultaneousUpdate (snd <$> eCopy) $
                 unionWith errorSimultaneousUpdate (snd <$> eFill) eExpo
-    eCopy  <- copyBookStrategy es1 bState
-    eFill  <- refillStrategy   es2 bState
-    eExpo  <- exposureControl  es1 bState
+    eCopy  <- copyBookStrategy   es1 bState
+    eFill  <- refillAsksStrategy es2 bState
+    eExpo  <- exposureControl    es1 bState
     return $ unionWith (\p q ->(fst p, snd q)) (toFst . fst <$> eFill) (toSnd . fst <$> eCopy)
   where
     toFst x = (Just x, Nothing) 
@@ -305,8 +305,8 @@ mirroringStrategy es1 es2 = mdo
 --------------------------------------------------------------------------------
 -- | places orders to refill balances that were depleted from executed orders
 
-refillStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
-refillStrategy es bState = return $ (reFill <$> es) `invApply` bState
+refillAsksStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
+refillAsksStrategy es bState = return $ (reFill <$> es) `invApply` bState
   where
     reFill :: Coin p => TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     -- reFill (TF (OrderFilled [Fill _ _ fVol fPrice _ oid])) st = (mempty, st{openActionsMap = H.adjust tail (Bid, fPrice) (openActionsMap st)})
@@ -320,12 +320,13 @@ invApply es b = flip ($) <$> b <@> es
 selfUpdateState
     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => (Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v)) )
-    ->  Event (TradingE p v q c) -> m (Event (StrategyAdvice (Action p v))) 
-selfUpdateState strategy es = mdo
-    bState <- stepper emptyState (snd <$> ePair)
+    -> ActionState p v
+    -> Event (TradingE p v q c) 
+    -> m (Event (StrategyAdvice (Action p v), ActionState p v)) -- m (Event (StrategyAdvice (Action p v))) 
+selfUpdateState strategy initialState es = mdo
+    bState <- stepper initialState (snd <$> ePair)
     ePair  <- strategy es bState
-    return (fst <$> ePair)
-
+    return ePair
 
 
 -- ------------------------------------------------
