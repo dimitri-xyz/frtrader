@@ -16,6 +16,8 @@ import TradingFramework
 import Strategy
 import Market.Types
 
+import qualified Data.HashMap.Strict as H
+
 --------------------------------------------------------------------------------
 main :: IO ()
 main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
@@ -137,8 +139,10 @@ refillInEs =
     , Just $ TF (OrderFilled [Fill 0 Nothing (Vol 1) (Price 1000) (Cost 0.02) (OID 0 0)])
     , Just $ TP (Placement limOrder)
     , Nothing
+    , Just $ TF (OrderFilled [Fill 0 Nothing (Vol 1) (Price 1000) (Cost 0.02) (OID 0 2)]) -- unknown ClientOID, thus ignored
     , Just $ TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
-    , Just $ TF (OrderFilled [Fill 1 Nothing (Vol 2) (Price 1500) (Cost 0) (OID 0 1), Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0)])
+    , Just $ TF (OrderFilled [ Fill 1 Nothing (Vol 2) (Price 1500) (Cost 0)    (OID 0 1)
+                             , Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0) ])
     ]
 
 refillExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
@@ -149,17 +153,31 @@ refillExpectedAs =
     , Just mempty
     , Nothing
     , Just mempty
-    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 2) (Just(OID 0 0)), NewLimitOrder Bid (Price 1000) (Vol 3) (Just(OID 0 0)) ])
-    -- , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))])
-    -- , Nothing
-    -- , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)])
-    -- , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 1) (Just(OID 0 0))])
-    -- , Nothing
+    , Just mempty
+    , Just $ Advice ("", ZipList [ NewLimitOrder Bid (Price 1500) (Vol 2) (Just(OID 0 0))
+                                 , NewLimitOrder Bid (Price 1000) (Vol 3) (Just(OID 0 0))])
     ]
 
+refillInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
+refillInitialState = 
+    ActionState
+        { openActionsMap = H.fromList 
+            [ ((Ask, Price 1000), [OpenAction {oaVolume = Vol 4, oaClientOID = OID 0 0, oaExecdVol  = Vol 0}] )
+            , ((Ask, Price 1500), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 1, oaExecdVol  = Vol 1}] )
+            , ((Ask, Price 3000), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 8, oaExecdVol  = Vol 1}] )]
+        , nextCOID = OID 0 10
+        , realizedExposure = Vol (0 :: v)
+        }
 
 refillFinalState :: forall p v. (Coin p, Coin v) => Maybe (ActionState p v)
-refillFinalState = Just emptyState
+refillFinalState = Just $
+    ActionState
+        { openActionsMap = H.fromList 
+            [ ((Ask, Price 1500), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 1, oaExecdVol  = Vol 3}] )
+            , ((Ask, Price 3000), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 8, oaExecdVol  = Vol 1}] )]
+        , nextCOID = OID 0 10
+        , realizedExposure = Vol (6 :: v)
+        }
 
 --------------------------------------------------------------------------------
 binaryIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingE p v q c) (TradingE p v q c))]

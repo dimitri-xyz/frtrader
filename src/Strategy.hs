@@ -304,7 +304,8 @@ mirroringStrategy es1 es2 = mdo
 
 --------------------------------------------------------------------------------
 -- | places orders to refill balances that were depleted from executed orders
-
+-- This only refills orders for which it can find a corresponding OpenAction (i.e. matching ClientOID) in the state.
+-- Orders placed on destination exchange (by a real person through the web or a different bot) will not be refilled.
 refillAsksStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
 refillAsksStrategy es bState = return $ (reFill <$> es) `invApply` bState
   where
