@@ -125,9 +125,11 @@ dumbStrategy es = mdo
 
 type ClientOID = OrderID
 
+type OpenActionsMap p v = H.HashMap (OrderSide, Price p) (H.HashMap ClientOID (OpenAction p v))
+
 data ActionState p v = 
     ActionState 
-        { openActionsMap   :: H.HashMap (OrderSide, Price p) [OpenAction p v]
+        { openActionsMap   :: OpenActionsMap p v
         , nextCOID         :: ClientOID -- ^ next available "Client Order ID"
         , realizedExposure :: Vol v     -- ^ negative = we are oversold, positive = we are overbought
         } deriving (Show, Eq)
@@ -137,8 +139,9 @@ type MarketState p v = State (ActionState p v)
 data OpenAction price vol
     = OpenAction
         { oaVolume    :: Vol vol
-        , oaClientOID :: ClientOID
-        , oaExecdVol  :: Vol vol } deriving (Show, Eq)
+        , oaExecdVol  :: Vol vol
+        , oaCancelled :: Bool -- have we already asked to cancel this order?
+        } deriving (Show, Eq)
 
 emptyState :: forall p v. (Coin p, Coin v) => ActionState p v
 emptyState = 
@@ -188,8 +191,8 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
             differenceMap   = H.difference   oldActionsMap newKeysMap
             intersectionMap = H.intersection oldActionsMap newKeysMap
 
-            oldActions     = ZipList . concatMap snd . H.toList $ differenceMap
-            removalActions = toCancellation <$> oldActions
+            oldActions     = ZipList . fmap fst . concat . fmap H.toList . fmap snd . H.toList $ differenceMap
+            removalActions = CancelLimitOrder <$> oldActions
 
             newActionMap = intersectionMap
             newAdvice    = Advice ("Remove old unmatched price-levels: "
@@ -205,8 +208,8 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
     subtractVol sd p v = do
         state <- get
         let oldActionsMap  = openActionsMap state
-            oldActions     = ZipList $ H.lookupDefault [] (sd,p) oldActionsMap
-            removalActions = toCancellation <$> oldActions
+            oldActions     = ZipList . fmap fst . H.toList $ H.lookupDefault H.empty (sd,p) oldActionsMap
+            removalActions = CancelLimitOrder <$> oldActions
             newActionMap   = H.delete (sd, p) oldActionsMap
             newAdvice      = Advice ( "Cancelling all actions to subtract volume: " 
                                       <> show (removalActions :: ZipList (Action p v)) 
@@ -215,26 +218,21 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
         put state{openActionsMap = newActionMap}
         return newAdvice
         
-    toCancellation :: OpenAction p v -> Action p v
-    toCancellation = CancelLimitOrder . oaClientOID
-
     addTarget :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
     addTarget (sd, p, v) = do
-        oldVol <- gets getVol
+        oldVol <- gets $ getStillOpenVol (sd, p)
         case compare v oldVol of
             EQ -> return mempty
             GT -> addVol sd p (v - oldVol) -- either creating new price-level or increasing volume in an existing one
             LT -> do
                 subAdv <- subtractVol sd p (oldVol - v)
-                oldVol' <- gets getVol
+                oldVol' <- gets $ getStillOpenVol (sd, p)
                 case compare v oldVol' of
                     LT -> error "addTarget: Could not subtract enough volume to go below or match target:"
                     EQ -> return subAdv
                     GT -> do
                         addAdv <- addVol sd p (v - oldVol')
                         return (subAdv <> addAdv)
-      where
-        getVol state = getStillOpenVol $ H.lookupDefault [] (sd,p) (openActionsMap state)
 
     addVol :: OrderSide -> Price p -> Vol v -> MarketState p v (StrategyAdvice (Action p v))
     addVol sd p v = do
@@ -242,21 +240,22 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
         let curOID@(OID hw lw) = nextCOID state
             oldActionsMap = openActionsMap state
             newAction     = NewLimitOrder sd p v (Just curOID)
-            newOpenAction = OpenAction v curOID (Vol 0)
+            newOpenAction = OpenAction v (Vol 0) False
             newState      = 
-                state { openActionsMap = H.alter (insertOpenAction newOpenAction) (sd,p) oldActionsMap
+                state { openActionsMap = H.alter (insertOpenAction curOID newOpenAction) (sd,p) oldActionsMap
                       , nextCOID = OID hw (lw+1)}
         put newState
         return $ Advice ("Placing new order: " <> show newAction  <> "\n", ZipList [newAction])
 
-    insertOpenAction :: OpenAction p v -> Maybe [OpenAction p v] -> Maybe [OpenAction p v]
-    insertOpenAction newOpenAction (Just as) = Just $ newOpenAction : as 
-    insertOpenAction newOpenAction Nothing   = Just [newOpenAction]
+    insertOpenAction :: ClientOID -> OpenAction p v -> Maybe (H.HashMap ClientOID (OpenAction p v)) -> Maybe (H.HashMap ClientOID (OpenAction p v))
+    insertOpenAction oid newOpenAction (Just actionMap) = Just (H.insert    oid newOpenAction actionMap)
+    insertOpenAction oid newOpenAction Nothing          = Just (H.singleton oid newOpenAction)
 
-    getStillOpenVol :: [OpenAction p v] -> Vol v
-    getStillOpenVol oas =
-        let requestedVol = sum $ map oaVolume   oas
-            executedVol  = sum $ map oaExecdVol oas
+    getStillOpenVol :: Coin p => (OrderSide, Price p) -> ActionState p v -> Vol v
+    getStillOpenVol key state =
+        let actionsMap   = H.lookupDefault H.empty key (openActionsMap state)
+            requestedVol = sum $ fmap oaVolume   actionsMap
+            executedVol  = sum $ fmap oaExecdVol actionsMap
          in requestedVol - executedVol
 
 --------------------------------------------------------------------------------
@@ -327,7 +326,7 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
         state <- get
         let actionsMap = openActionsMap state
             newMap     = actionsMap
-            oas        = H.lookupDefault [] (Ask, Price fPrice) actionsMap
+            oaMap      = H.lookupDefault H.empty (Ask, Price fPrice) actionsMap
 
         put state{openActionsMap = newMap}
         return mempty

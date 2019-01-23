@@ -127,7 +127,7 @@ copyExpectedAs =
     , Nothing
     , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))])
     , Nothing
-    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)])
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 0), CancelLimitOrder (OID 0 1)])
     ]
 
 --------------------------------------------------------------------------------
@@ -162,9 +162,9 @@ refillInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
 refillInitialState = 
     ActionState
         { openActionsMap = H.fromList 
-            [ ((Ask, Price 1000), [OpenAction {oaVolume = Vol 4, oaClientOID = OID 0 0, oaExecdVol  = Vol 0}] )
-            , ((Ask, Price 1500), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 1, oaExecdVol  = Vol 1}] )
-            , ((Ask, Price 3000), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 8, oaExecdVol  = Vol 1}] )]
+            [ ((Ask, Price 1000), H.singleton (OID 0 0) (OpenAction {oaVolume = Vol 4, oaCancelled = False, oaExecdVol  = Vol 0}) )
+            , ((Ask, Price 1500), H.singleton (OID 0 1) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )
+            , ((Ask, Price 3000), H.singleton (OID 0 8) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )]
         , nextCOID = OID 0 10
         , realizedExposure = Vol (0 :: v)
         }
@@ -173,8 +173,8 @@ refillFinalState :: forall p v. (Coin p, Coin v) => Maybe (ActionState p v)
 refillFinalState = Just $
     ActionState
         { openActionsMap = H.fromList 
-            [ ((Ask, Price 1500), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 1, oaExecdVol  = Vol 3}] )
-            , ((Ask, Price 3000), [OpenAction {oaVolume = Vol 5, oaClientOID = OID 0 8, oaExecdVol  = Vol 1}] )]
+            [ ((Ask, Price 1500), H.singleton (OID 0 1) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 3}) )
+            , ((Ask, Price 3000), H.singleton (OID 0 8) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )]
         , nextCOID = OID 0 10
         , realizedExposure = Vol (6 :: v)
         }
@@ -208,7 +208,7 @@ binaryExpectedAs = -- fmap (\s -> (Nothing, Just s)) <$> copyExpectedAs
     , Nothing
     , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 2000) (Vol 2) (Just(OID 0 1))]))
     , Nothing
-    , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 1), CancelLimitOrder (OID 0 0)]))
+    , Just $ (Nothing, Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1500) (Vol 1) (Just(OID 0 2)), CancelLimitOrder (OID 0 0), CancelLimitOrder (OID 0 1)]))
     ]
 
 --------------------------------------------------------------------------------
