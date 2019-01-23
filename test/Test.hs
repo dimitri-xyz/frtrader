@@ -35,7 +35,7 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Output list does not match" copyExpectedAs (fmap removeReasoning <$> outputActions)
 
     , testCase "refillAsksStrategy" $ do
-        outputPairs <- interpretFrameworks (selfUpdateState refillAsksStrategy emptyState) (refillInEs :: [Maybe(TradingE p v q c)])
+        outputPairs <- interpretFrameworks (selfUpdateState refillAsksStrategy refillInitialState) (refillInEs :: [Maybe(TradingE p v q c)])
         let outputActions = fmap fst <$> outputPairs
             outputStates  = fmap snd <$> outputPairs
         assertEqual "Output list does not match"        refillExpectedAs (fmap removeReasoning <$> outputActions)
@@ -149,13 +149,13 @@ refillExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Acti
 refillExpectedAs =
     [ Nothing
     , Just mempty
-    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1000) (Vol 1) (Just(OID 0 0))])
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1000) (Vol 1) Nothing])
     , Just mempty
     , Nothing
     , Just mempty
     , Just mempty
-    , Just $ Advice ("", ZipList [ NewLimitOrder Bid (Price 1500) (Vol 2) (Just(OID 0 0))
-                                 , NewLimitOrder Bid (Price 1000) (Vol 3) (Just(OID 0 0))])
+    , Just $ Advice ("", ZipList [ NewLimitOrder Bid (Price 1500) (Vol 2) Nothing
+                                 , NewLimitOrder Bid (Price 1000) (Vol 3) Nothing])
     ]
 
 refillInitialState :: forall p v. (Coin p, Coin v) => ActionState p v

@@ -324,12 +324,31 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
     refillAsks :: (Coin p, Coin v) => Fill p v -> MarketState p v (StrategyAdvice (Action p v))
     refillAsks (Fill _ _ (Vol fVol) (Price fPrice) (Cost fFee) oid) = do
         state <- get
-        let actionsMap = openActionsMap state
-            newMap     = actionsMap
-            oaMap      = H.lookupDefault H.empty (Ask, Price fPrice) actionsMap
+        case H.lookup (Ask, Price fPrice) (openActionsMap state) of
+            Nothing -> return mempty
+            Just hm -> case H.lookup oid hm of
+                Nothing -> return mempty
+                Just oa -> case compare (Vol fVol) (oaVolume oa - oaExecdVol oa) of
+                    GT -> error "WHAAAAATTT!!!! The impossible happened - Filled more than was still open" -- FIX ME!
+                    EQ -> do
+                        let oa' = oa {oaExecdVol = oaExecdVol oa + Vol fVol}
+                            hm' = H.update (const $ Nothing) oid hm
+                            lim = NewLimitOrder Bid (Price fPrice) (Vol fVol) Nothing
+                            newMap = H.adjust (const hm') (Ask, Price fPrice) (openActionsMap state)
 
-        put state{openActionsMap = newMap}
-        return mempty
+                        put state { realizedExposure = realizedExposure state + Vol fVol
+                                  , openActionsMap = if null hm' then H.delete (Ask, Price fPrice) (openActionsMap state) else newMap }
+                        return $ Advice ("Refill " <> show (Vol fVol) <> " from ClientOID: " <> show oid <> "\n", ZipList [lim])
+
+                    LT -> do
+                        let oa' = oa {oaExecdVol = oaExecdVol oa + Vol fVol}
+                            hm' = H.update (const $ Just oa') oid hm
+                            lim = NewLimitOrder Bid (Price fPrice) (Vol fVol) Nothing
+                            newMap = H.adjust (const hm') (Ask, Price fPrice) (openActionsMap state)
+
+                        put state { realizedExposure = realizedExposure state + Vol fVol
+                                  , openActionsMap = newMap }
+                        return $ Advice ("Refill " <> show (Vol fVol) <> " from ClientOID: " <> show oid <> "\n", ZipList [lim])
 
 
 invApply :: Event (a -> b) -> Behavior a -> Event b 
