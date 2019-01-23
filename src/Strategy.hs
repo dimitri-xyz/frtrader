@@ -123,11 +123,13 @@ dumbStrategy es = mdo
 --------------------------------------------------------------------------------
 -- | Copies orderbook
 
+type ClientOID = OrderID
+
 data ActionState p v = 
     ActionState 
         { openActionsMap   :: H.HashMap (OrderSide, Price p) [OpenAction p v]
-        , nextCOID         :: OrderID  -- ^ next available "Client Order ID"
-        , realizedExposure :: Vol v    -- ^ negative = we are oversold, positive = we are overbought
+        , nextCOID         :: ClientOID -- ^ next available "Client Order ID"
+        , realizedExposure :: Vol v     -- ^ negative = we are oversold, positive = we are overbought
         } deriving (Show, Eq)
 
 type MarketState p v = State (ActionState p v)
@@ -135,7 +137,7 @@ type MarketState p v = State (ActionState p v)
 data OpenAction price vol
     = OpenAction
         { oaVolume    :: Vol vol
-        , oaClientOID :: OrderID
+        , oaClientOID :: ClientOID
         , oaExecdVol  :: Vol vol } deriving (Show, Eq)
 
 emptyState :: forall p v. (Coin p, Coin v) => ActionState p v
@@ -306,12 +308,29 @@ mirroringStrategy es1 es2 = mdo
 -- | places orders to refill balances that were depleted from executed orders
 -- This only refills orders for which it can find a corresponding OpenAction (i.e. matching ClientOID) in the state.
 -- Orders placed on destination exchange (by a real person through the web or a different bot) will not be refilled.
-refillAsksStrategy :: (Coin p, MonadMoment m) => Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
-refillAsksStrategy es bState = return $ (reFill <$> es) `invApply` bState
+refillAsksStrategy
+    :: (Coin p, Coin v, MonadMoment m) 
+    => Event (TradingE p v q c) -> Behavior (ActionState p v)
+    -> m (Event (StrategyAdvice (Action p v), ActionState p v))
+refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
   where
-    reFill :: Coin p => TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
-    -- reFill (TF (OrderFilled [Fill _ _ fVol fPrice _ oid])) st = (mempty, st{openActionsMap = H.adjust tail (Bid, fPrice) (openActionsMap st)})
-    reFill _ st = (mempty, st)
+    refillUpdate :: (Coin p, Coin v) => TradingE p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
+    refillUpdate (TF (OrderFilled fills)) = runState (foldr (<>) mempty <$> mapM refillAsks fills)
+    refillUpdate (TC cancellation)        = runState (cancelOpenAction cancellation)
+    refillUpdate _                        = runState (return mempty)
+
+    cancelOpenAction :: (Coin p, Coin v) => OrderCancellation -> MarketState p v (StrategyAdvice (Action p v))
+    cancelOpenAction (Cancellation oid) = return mempty -- error "Whoa! not defined yet!"
+
+    refillAsks :: (Coin p, Coin v) => Fill p v -> MarketState p v (StrategyAdvice (Action p v))
+    refillAsks (Fill _ _ (Vol fVol) (Price fPrice) (Cost fFee) oid) = do
+        state <- get
+        let actionsMap = openActionsMap state
+            newMap     = actionsMap
+            oas        = H.lookupDefault [] (Ask, Price fPrice) actionsMap
+
+        put state{openActionsMap = newMap}
+        return mempty
 
 
 invApply :: Event (a -> b) -> Behavior a -> Event b 
@@ -323,7 +342,7 @@ selfUpdateState
     => (Event (TradingE p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v)) )
     -> ActionState p v
     -> Event (TradingE p v q c) 
-    -> m (Event (StrategyAdvice (Action p v), ActionState p v)) -- m (Event (StrategyAdvice (Action p v))) 
+    -> m (Event (StrategyAdvice (Action p v), ActionState p v))
 selfUpdateState strategy initialState es = mdo
     bState <- stepper initialState (snd <$> ePair)
     ePair  <- strategy es bState
