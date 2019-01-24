@@ -41,6 +41,15 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Output list does not match"        refillExpectedAs (fmap removeReasoning <$> outputActions)
         assertEqual "Final output state does not match" refillFinalState (last outputStates)
 
+    , testCase "exposureControl" $ do
+        let exposureControl' a b = fmap (\action -> (mempty, action)) <$> exposureControl a b
+        outputPairs <- interpretFrameworks
+                            (selfUpdateState exposureControl' expoInitialState)
+                            ((fmap snd expoOutInEs) :: [Maybe(TradingE p v q c)])
+        let outputStates = fmap snd <$> outputPairs
+        assertEqual "Final output state does not match" 
+            (fmap fst (expoOutInEs :: [(Maybe (Vol v), Maybe (TradingE p v q c))]) ) (fmap realizedExposure <$> outputStates)
+
     , testCase "mirroringStrategy" $ do
         outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (binaryIns :: [Maybe (Either (TradingE p v q c) (TradingE p v q c))])  
         assertEqual "Output list does not match" binaryExpectedAs (fmap (fmap (fmap removeReasoning)) <$> outputEvents)
@@ -219,3 +228,26 @@ binaryExpectedAs = -- fmap (\s -> (Nothing, Just s)) <$> copyExpectedAs
     ]
 
 --------------------------------------------------------------------------------
+expoInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
+expoInitialState =
+    ActionState
+        { openActionsMap = H.fromList 
+            [ ((Ask, Price 1500), H.singleton (OID 0 1) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 3}) )
+            , ((Ask, Price 3000), H.singleton (OID 0 8) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )]
+        , nextCOID = OID 0 10
+        , realizedExposure = Vol (6 :: v)
+        }
+
+-- FIX ME! Compiler requires this type signature. Why? Monomorphism?
+expoOutInEs :: forall p v q c. (Coin p, Coin v) => [(Maybe (Vol v), Maybe (TradingE p v q c))]
+expoOutInEs = -- pairs: (realized exposure volume after event, event)
+    [ (Nothing     , Just $ TB $ bk1)
+    , (Just (Vol 6), Just $ TF $ OrderFilled [])
+    , (Nothing     , Just $ TP $ Placement limOrder)
+    , (Nothing     , Nothing)
+    , (Just (Vol 1), Just $ TF $ OrderFilled [ Fill 1 Nothing (Vol 2) (Price 1500) (Cost 0)    (OID 0 1)
+                                             , Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0)])
+    , (Nothing     , Just $ TB $ bk3)
+    , (Nothing     , Just $ TC $ Cancellation {toOID = OID {hw = 333, lw = 444}})
+    , (Just (Vol 0), Just $ TF $ OrderFilled [ Fill 1 Nothing (Vol 1) (Price 1500) (Cost 0)    (OID 0 1)])
+    ]
