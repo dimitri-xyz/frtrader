@@ -275,6 +275,7 @@ exposureControl es bState = return (eUpdateState `invApply` bState)
 updateAskExposure :: forall p v q c. (Coin p, Coin v) => TradingE p v q c -> MarketState p v ()
 updateAskExposure ev = return ()
 
+-- FIX FIX ME! Write/modify tests to ensure this now works before removing the comment.
 {-
 FIX ME!
 There's a synchronization bug on this strategy "as is". When an order fill is detected. The open order state is immediately updated,
@@ -325,30 +326,25 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
     refillAsks (Fill _ _ (Vol fVol) (Price fPrice) (Cost fFee) oid) = do
         state <- get
         case H.lookup (Ask, Price fPrice) (openActionsMap state) of
-            Nothing -> return mempty
-            Just hm -> case H.lookup oid hm of
+            Nothing       -> return mempty
+            Just innerMap -> case H.lookup oid innerMap of
                 Nothing -> return mempty
-                Just oa -> case compare (Vol fVol) (oaVolume oa - oaExecdVol oa) of
-                    GT -> error "WHAAAAATTT!!!! The impossible happened - Filled more than was still open" -- FIX ME!
-                    EQ -> do
-                        let oa' = oa {oaExecdVol = oaExecdVol oa + Vol fVol}
-                            hm' = H.update (const $ Nothing) oid hm
-                            lim = NewLimitOrder Bid (Price fPrice) (Vol fVol) Nothing
-                            newMap = H.adjust (const hm') (Ask, Price fPrice) (openActionsMap state)
+                Just oa -> do
+                    let newOrder = NewLimitOrder Bid (Price fPrice) (Vol fVol) (Just $ OID 0 0)
+                        oa' = oa {oaExecdVol = oaExecdVol oa + Vol fVol}
 
-                        put state { realizedExposure = realizedExposure state + Vol fVol
-                                  , openActionsMap = if null hm' then H.delete (Ask, Price fPrice) (openActionsMap state) else newMap }
-                        return $ Advice ("Refill " <> show (Vol fVol) <> " from ClientOID: " <> show oid <> "\n", ZipList [lim])
+                        innerUpdater = case compare (Vol fVol) (oaVolume oa - oaExecdVol oa) of
+                            GT -> error "WHAAAAATTT!!!! The impossible happened - Filled more than was still open" -- FIX ME!
+                            EQ -> const Nothing     -- exact match, remove this entry
+                            LT -> const (Just oa')
+                    
+                        innerMap' = H.update innerUpdater oid innerMap
 
-                    LT -> do
-                        let oa' = oa {oaExecdVol = oaExecdVol oa + Vol fVol}
-                            hm' = H.update (const $ Just oa') oid hm
-                            lim = NewLimitOrder Bid (Price fPrice) (Vol fVol) Nothing
-                            newMap = H.adjust (const hm') (Ask, Price fPrice) (openActionsMap state)
+                        outerUpdater = if null innerMap' then const Nothing else const (Just innerMap')
+                        outerMap     = H.update outerUpdater (Ask, Price fPrice) (openActionsMap state) 
 
-                        put state { realizedExposure = realizedExposure state + Vol fVol
-                                  , openActionsMap = newMap }
-                        return $ Advice ("Refill " <> show (Vol fVol) <> " from ClientOID: " <> show oid <> "\n", ZipList [lim])
+                    put state {realizedExposure = realizedExposure state + Vol fVol, openActionsMap = outerMap}
+                    return $ Advice ("Refill " <> show (Vol fVol) <> " from ClientOID: " <> show oid <> "\n", ZipList [newOrder])
 
 
 invApply :: Event (a -> b) -> Behavior a -> Event b 

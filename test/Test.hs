@@ -142,20 +142,20 @@ refillInEs =
     , Just $ TF (OrderFilled [Fill 0 Nothing (Vol 1) (Price 1000) (Cost 0.02) (OID 0 2)]) -- unknown ClientOID, thus ignored
     , Just $ TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
     , Just $ TF (OrderFilled [ Fill 1 Nothing (Vol 2) (Price 1500) (Cost 0)    (OID 0 1)
-                             , Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0) ])
+                             , Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0)])
     ]
 
 refillExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
 refillExpectedAs =
     [ Nothing
     , Just mempty
-    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1000) (Vol 1) Nothing])
+    , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1000) (Vol 1) (Just $ OID 0 0)])
     , Just mempty
     , Nothing
     , Just mempty
     , Just mempty
-    , Just $ Advice ("", ZipList [ NewLimitOrder Bid (Price 1500) (Vol 2) Nothing
-                                 , NewLimitOrder Bid (Price 1000) (Vol 3) Nothing])
+    , Just $ Advice ("", ZipList [ NewLimitOrder Bid (Price 1500) (Vol 2) (Just $ OID 0 0)
+                                 , NewLimitOrder Bid (Price 1000) (Vol 3) (Just $ OID 0 0)])
     ]
 
 refillInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
