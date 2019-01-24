@@ -319,8 +319,14 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
     refillUpdate (TC cancellation)        = runState (cancelOpenAction cancellation)
     refillUpdate _                        = runState (return mempty)
 
+    -- Assumes there will be only one OpenAction with a given ClientOID in the whole market
     cancelOpenAction :: (Coin p, Coin v) => OrderCancellation -> MarketState p v (StrategyAdvice (Action p v))
-    cancelOpenAction (Cancellation oid) = return mempty -- error "Whoa! not defined yet!"
+    cancelOpenAction (Cancellation coid) = do
+        state <- get
+        let newMap          = cleanupOuterMap (H.delete coid <$> openActionsMap state)
+            cleanupOuterMap = H.mapMaybe (\hm -> if null hm then Nothing else Just hm)
+        put state {openActionsMap = newMap}
+        return mempty
 
     refillAsks :: (Coin p, Coin v) => Fill p v -> MarketState p v (StrategyAdvice (Action p v))
     refillAsks (Fill _ _ (Vol fVol) (Price fPrice) (Cost fFee) oid) = do

@@ -138,11 +138,13 @@ refillInEs =
     , Just $ TB bk2
     , Just $ TF (OrderFilled [Fill 0 Nothing (Vol 1) (Price 1000) (Cost 0.02) (OID 0 0)])
     , Just $ TP (Placement limOrder)
+    , Just $ TC (Cancellation {toOID = OID 0 7})
     , Nothing
     , Just $ TF (OrderFilled [Fill 0 Nothing (Vol 1) (Price 1000) (Cost 0.02) (OID 0 2)]) -- unknown ClientOID, thus ignored
     , Just $ TC (Cancellation {toOID = OID {hw = 333, lw = 444}})
     , Just $ TF (OrderFilled [ Fill 1 Nothing (Vol 2) (Price 1500) (Cost 0)    (OID 0 1)
                              , Fill 2 Nothing (Vol 3) (Price 1000) (Cost 0.01) (OID 0 0)])
+    , Just $ TC (Cancellation {toOID = OID 0 9})
     ]
 
 refillExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
@@ -151,11 +153,13 @@ refillExpectedAs =
     , Just mempty
     , Just $ Advice ("", ZipList [NewLimitOrder Bid (Price 1000) (Vol 1) (Just $ OID 0 0)])
     , Just mempty
+    , Just mempty
     , Nothing
     , Just mempty
     , Just mempty
     , Just $ Advice ("", ZipList [ NewLimitOrder Bid (Price 1500) (Vol 2) (Just $ OID 0 0)
                                  , NewLimitOrder Bid (Price 1000) (Vol 3) (Just $ OID 0 0)])
+    , Just mempty
     ]
 
 refillInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
@@ -164,7 +168,10 @@ refillInitialState =
         { openActionsMap = H.fromList 
             [ ((Ask, Price 1000), H.singleton (OID 0 0) (OpenAction {oaVolume = Vol 4, oaCancelled = False, oaExecdVol  = Vol 0}) )
             , ((Ask, Price 1500), H.singleton (OID 0 1) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )
-            , ((Ask, Price 3000), H.singleton (OID 0 8) (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )]
+            , ((Ask, Price 3000), H.fromList[ (OID 0 8,  OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1})
+                                            , (OID 0 9,  OpenAction {oaVolume = Vol 7, oaCancelled = False, oaExecdVol  = Vol 5})])
+            , ((Ask, Price 5000), H.singleton (OID 0 7) (OpenAction {oaVolume = Vol 2, oaCancelled = False, oaExecdVol  = Vol 1}) )
+            ]
         , nextCOID = OID 0 10
         , realizedExposure = Vol (0 :: v)
         }
