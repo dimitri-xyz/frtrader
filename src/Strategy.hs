@@ -273,7 +273,13 @@ exposureControl es bState = return (eUpdateState `invApply` bState)
     isFill _      = False
 
 updateAskExposure :: forall p v q c. (Coin p, Coin v) => TradingE p v q c -> MarketState p v ()
-updateAskExposure ev = return ()
+updateAskExposure (TF (OrderFilled fills)) = mapM_ updateAskFill fills
+  where
+    updateAskFill :: forall p v q c. (Coin p, Coin v) => Fill p v -> MarketState p v ()
+    updateAskFill (Fill _ _ vol _ _ _) = do
+        st <- get
+        put st {realizedExposure = realizedExposure st - vol}
+        return ()
 
 -- FIX FIX ME! Write/modify tests to ensure this now works before removing the comment.
 {-

@@ -42,7 +42,7 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Final output state does not match" refillFinalState (last outputStates)
 
     , testCase "exposureControl" $ do
-        let exposureControl' a b = fmap (\action -> (mempty, action)) <$> exposureControl a b
+        let exposureControl' = fmap (fmap (fmap (fmap (\action -> (mempty, action))))) exposureControl
         outputPairs <- interpretFrameworks
                             (selfUpdateState exposureControl' expoInitialState)
                             ((fmap snd expoOutInEs) :: [Maybe(TradingE p v q c)])
@@ -240,7 +240,7 @@ expoInitialState =
 
 -- FIX ME! Compiler requires this type signature. Why? Monomorphism?
 expoOutInEs :: forall p v q c. (Coin p, Coin v) => [(Maybe (Vol v), Maybe (TradingE p v q c))]
-expoOutInEs = -- pairs: (realized exposure volume after event, event)
+expoOutInEs = -- pairs: (realized exposure volume just after event, event)
     [ (Nothing     , Just $ TB $ bk1)
     , (Just (Vol 6), Just $ TF $ OrderFilled [])
     , (Nothing     , Just $ TP $ Placement limOrder)
