@@ -26,7 +26,6 @@ Strategies can place and cancel orders by using the corresponding Actions.
 
 All Events and Actions that require or return an identifier for orders placed use a ClientOID rather than an exchange specific OrderID. The ClientOID is an opaque identifier outside the strategy (except for being `Hashable`, `Show` and `Eq`).
 
-
 ### Market Event Description
 
 1. **EvPlace** - Notifies the strategy that an order has been placed in the market. At a minimum, specifies the ClientOID of the Action that succeeded.
@@ -61,9 +60,16 @@ If an order is fully executed `EvCancel` will never happen. It is the strategies
 Because ClientOIDs are opaque, **the strategy will only receive events corresponding to orders for which the framework received a ClientOID**. The framework receives notifications from the exchange in terms of OrderIDs and it must know which OrderID relates to which ClientOID to be able to generate events for the strategy. This means, that if no corresponding ClientOID is found for a given OerderID, the notification from the exchange is discarded and no event generated.
 
 
+**Seemingly Inconsistent Events**
+
+The framework tries to present to trading strategies a view of the world that makes sense, but this only goes as far as the guarantees mentioned above. Otherwise, the strategy needs to do its best to make sense of the information provided by the exchanges. There are many circumstances that will seem weird.
+
+For example: The frameworks makes no assurance that every single change to the orderbook will be shown to the trading strategy or that those will be shown in order. If the strategy places an order, but the order only executes at a much worse price than expected, the framework will not generate orderbook events to try to justify the difference in price for the executed order. The strategy just has to figure out by itself that the market slipped before its order was executed.
+
+
 ### Market Action Description
 
-1. **PlaceLimit** - Requests that a limit order be placed on the market. At a minimum, specifies a ClientOID, price and volume.
+1. **PlaceLimit** - Requests that a limit order be placed on the market. At a minimum, specifies a ClientOID, side, price and volume.
 2. **CancelLimit** - Requests that an order be cancelled. At a minimum, specifies the ClientOID.
 
 #### Action Sequencing
@@ -71,5 +77,3 @@ Because ClientOIDs are opaque, **the strategy will only receive events correspon
 The strategy is free to place actions in any order. However, if the strategy requests cancellation of an order for a ClientOID that the framework doesn't yet know, the results are undefined.
 
 Also, if a strategy repeats the same ClientOID in multiple `PlaceLimit` requests, event reporting may not report all events or generate bogus data.
-
-
