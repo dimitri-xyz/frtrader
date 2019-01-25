@@ -26,13 +26,16 @@ Strategies can place and cancel orders by using the corresponding Actions.
 
 All Events and Actions that require or return an identifier for orders placed use a ClientOID rather than an exchange specific OrderID. The ClientOID is an opaque identifier outside the strategy (except for being `Hashable`, `Show` and `Eq`).
 
+In fact, the mapping the framework keeps is from `Maybe (ClientOID)` to `OrderID` so that `Nothing` is a valid identifier. The `Nothing` identifier represents any number of orders that have been placed and for which events will be tracked, but for which we do not care about the `ClientOID`.
+
+
 ### Market Event Description
 
-1. **EvPlace** - Notifies the strategy that an order has been placed in the market. At a minimum, specifies the ClientOID of the Action that succeeded.
+1. **EvPlace** - Notifies the strategy that an order has been placed in the market. At a minimum, specifies the `Maybe ClientOID` of the Action that succeeded.
 
-2. **EvCancel** - Notifies the strategy that an order has been cancelled. At a minimum, specifies the ClientOID of the cancelled order. No more events for this order will occur. 
+2. **EvCancel** - Notifies the strategy that an order has been cancelled. At a minimum, specifies the `Maybe ClientOID` of the cancelled order. No more events for this order will occur. 
 
-3. **EvFills** - Notifies the strategy that an order has been filled by one of more fills. Each fill provides at least: the volume executed, the price, the ClientOID of the order. Each event provides a (possibly empty) list of fills.
+3. **EvFills** - Notifies the strategy that an order has been filled by one of more fills. Each fill provides at least: the volume executed, the price, the `Maybe ClientOID` of the order. Each event provides a (possibly empty) list of fills.
 
 4. **EvBook** - Notifies the strategy that the market's orderboook has been updated. Although the updates may be incremental, the event returns the whole QuoteBook each time.
 
@@ -57,7 +60,9 @@ That is:
 
 If an order is fully executed `EvCancel` will never happen. It is the strategies' job to keep track of all fills if it needs to know when an order has been fully executed.
 
-Because ClientOIDs are opaque, **the strategy will only receive events corresponding to orders for which the framework received a ClientOID**. The framework receives notifications from the exchange in terms of OrderIDs and it must know which OrderID relates to which ClientOID to be able to generate events for the strategy. This means, that if no corresponding ClientOID is found for a given OerderID, the notification from the exchange is discarded and no event generated.
+There is one exception to guarantee (2) above for orders created with a `Maybe ClientOID` assigned to `Nothing`. Because we can assign multiple orders to this value, it is possible to receive multiple `EvCancel` and later still continue to received `EvFills` for this `Maybe ClientOID` value, as not all orders assigned this `Maybe ClientOID` may have yet been cancelled.
+
+Because ClientOIDs are opaque, **the strategy will only receive events corresponding to orders for which the framework received a `Maybe ClientOID`**. `Nothing` counts as a valid ClientOID in this context. The framework receives notifications from the exchange in terms of OrderIDs and it must know which OrderID relates to which ClientOID to be able to generate events for the strategy. This means, that if no corresponding `Maybe ClientOID` is found (not even `Nothing`) for a given OrderID, the notification from the exchange is discarded and no event generated.
 
 
 **Seemingly Inconsistent Events**
@@ -69,11 +74,11 @@ For example: The frameworks makes no assurance that every single change to the o
 
 ### Market Action Description
 
-1. **PlaceLimit** - Requests that a limit order be placed on the market. At a minimum, specifies a ClientOID, side, price and volume.
-2. **CancelLimit** - Requests that an order be cancelled. At a minimum, specifies the ClientOID.
+1. **PlaceLimit** - Requests that a limit order be placed on the market. At a minimum, specifies a `Maybe ClientOID`, side, price and volume.
+2. **CancelLimit** - Requests that an order be cancelled. At a minimum, specifies the `ClientOID` (`Nothing` is currently *not* acceptable here).
 
 #### Action Sequencing
 
 The strategy is free to place actions in any order. However, if the strategy requests cancellation of an order for a ClientOID that the framework doesn't yet know, the results are undefined.
 
-Also, if a strategy repeats the same ClientOID in multiple `PlaceLimit` requests, event reporting may not report all events or generate bogus data.
+A strategy can repeat `Nothing` as a `Maybe ClientOID` as much as it wants, but if a strategy repeats the same ClientOID for a `Just` value in multiple `PlaceLimit` requests, the results are undefined.
