@@ -6,10 +6,10 @@ The events are:
 
 ```
 data TradingEv
-    = EvPlace
-    | EvCancel
-    | EvFills
-    | EvBook
+    = PlaceEv
+    | CancelEv
+    | FillsEv
+    | BookEv
 ``` 
 
 The Actions are: 
@@ -31,36 +31,36 @@ In fact, the mapping the framework keeps is from `Maybe (ClientOID)` to `OrderID
 
 ### Market Event Description
 
-1. **EvPlace** - Notifies the strategy that an order has been placed in the market. At a minimum, specifies the `Maybe ClientOID` of the Action that succeeded.
+1. **PlaceEv** - Notifies the strategy that an order has been placed in the market. At a minimum, specifies the `Maybe ClientOID` of the Action that succeeded.
 
-2. **EvCancel** - Notifies the strategy that an order has been cancelled. At a minimum, specifies the `Maybe ClientOID` of the cancelled order. No more events for this order will occur. 
+2. **CancelEv** - Notifies the strategy that an order has been cancelled. At a minimum, specifies the `Maybe ClientOID` of the cancelled order. No more events for this order will occur. 
 
-3. **EvFills** - Notifies the strategy that an order has been filled by one of more fills. Each fill provides at least: the volume executed, the price, the `Maybe ClientOID` of the order. Each event provides a (possibly empty) list of fills.
+3. **FillsEv** - Notifies the strategy that an order has been filled by one of more fills. Each fill provides at least: the volume executed, the price, the `Maybe ClientOID` and the side of the order that got filled. Each event provides a (possibly empty) list of fills.
 
-4. **EvBook** - Notifies the strategy that the market's orderboook has been updated. Although the updates may be incremental, the event returns the whole QuoteBook each time.
+4. **BookEv** - Notifies the strategy that the market's orderboook has been updated. Although the updates may be incremental, the event returns the whole QuoteBook each time.
 
 #### Event Sequencing
 
-**EvBook**
+**BookEv**
 
-`EvBook` provide no synchronization guarantee. These events may happen at any time and are not necessarily sincronized with our own order placements and cancellations. In orders words, an `EvBook` may show an order for which an `EvCancel` has already happened. It may also already show an order for which we have not yet received an `EvPlace`. 
+`BookEv` provide no synchronization guarantee. These events may happen at any time and are not necessarily sincronized with our own order placements and cancellations. In orders words, an `BookEv` may show an order for which an `CancelEv` has already happened. It may also already show an order for which we have not yet received an `PlaceEv`. 
 
-(Ideally, `EvBook` should provide a "filtered" orderbook where all our own orders have been removed, but this is not and may never be impletemented due to exchange API limitations. Note that filtering by itself is *not* sufficient to avoid all the synchrony crazyness these events bring. The order of orderbooks may simply be flipped in time, no amount of filtering can make sense of that...)
+(Ideally, `BookEv` should provide a "filtered" orderbook where all our own orders have been removed, but this is not and may never be impletemented due to exchange API limitations. Note that filtering by itself is *not* sufficient to avoid all the synchrony crazyness these events bring. The order of orderbooks may simply be flipped in time, no amount of filtering can make sense of that...)
 
-**EvPlace, EvCancel and EvFills**
+**PlaceEv, CancelEv and FillsEv**
 
 The framework provides the following guarantee of ordering:
 
-`EvPlace` comes before any `EvFills` which can happen multiple times and which, in turn, all come before `EvCancel`.
+`PlaceEv` comes before any `FillsEv` which can happen multiple times and which, in turn, all come before `CancelEv`.
 
 That is:
 
-1. No `EvFills` or `EvCancel` will happen before the corresponding `EvPlace`
-2. The framework guarantees that all `EvFills` events that happened to a cancelled order will be sent to the strategy *before* the final `EvCancel `.
+1. No `FillsEv` or `CancelEv` will happen before the corresponding `PlaceEv`
+2. The framework guarantees that all `FillsEv` events that happened to a cancelled order will be sent to the strategy *before* the final `CancelEv `.
 
-If an order is fully executed `EvCancel` will never happen. It is the strategies' job to keep track of all fills if it needs to know when an order has been fully executed.
+If an order is fully executed `CancelEv` will never happen. It is the strategies' job to keep track of all fills if it needs to know when an order has been fully executed.
 
-There is one exception to guarantee (2) above for orders created with a `Maybe ClientOID` assigned to `Nothing`. Because we can assign multiple orders to this value, it is possible to receive multiple `EvCancel` and later still continue to received `EvFills` for this `Maybe ClientOID` value, as not all orders assigned this `Maybe ClientOID` may have yet been cancelled.
+There is one exception to guarantee (2) above for orders created with a `Maybe ClientOID` assigned to `Nothing`. Because we can assign multiple orders to this value, it is possible to receive multiple `CancelEv` and later still continue to received `FillsEv` for this `Maybe ClientOID` value, as not all orders assigned this `Maybe ClientOID` may have yet been cancelled.
 
 Because ClientOIDs are opaque, **the strategy will only receive events corresponding to orders for which the framework received a `Maybe ClientOID`**. `Nothing` counts as a valid ClientOID in this context. The framework receives notifications from the exchange in terms of OrderIDs and it must know which OrderID relates to which ClientOID to be able to generate events for the strategy. This means, that if no corresponding `Maybe ClientOID` is found (not even `Nothing`) for a given OrderID, the notification from the exchange is discarded and no event generated.
 
