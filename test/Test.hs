@@ -52,9 +52,17 @@ tests _ _ = testGroup " Trading Strategy Tests"
         assertEqual "Final output state does not match" 
             (fmap fst (expoOutInEs :: [(Maybe (Vol v), Maybe (TradingEv p v q c))]) ) (fmap realizedExposure <$> outputStates)
 
-    , testCase "mirroringStrategy" $ do
+    , testCase "mirroringStrategy - Output/State" $ do
         outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (binaryIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
         assertEqual "Output list does not match" binaryExpectedAs (fmap removeComments <$> outputEvents)
+
+    , testCase "mirroringStrategy - Refill reissuance" $ do
+        outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (refillIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
+        assertEqual "Output list does not match" refillIssuanceExpectedAs (fmap removeComments <$> outputEvents)
+
+    , testCase "mirroringStrategy - Cancellation reissuance" $ do
+        outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (cancellationIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
+        assertEqual "Output list does not match" cancellationIssuanceExpectedAs (fmap removeComments <$> outputEvents)
 
     ]
 
@@ -237,4 +245,59 @@ binaryExpectedAs =
     , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 2) (Just 1)]))
     , Nothing
     , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1500) (Vol 1) (Just 2), CancelLimit 0, CancelLimit 1 ]))
+    ]
+
+
+--------------------------------------------------------------------------------
+-- test for unnecessary re-issuance for target that has not yet been refilled.
+
+refillIssuanceIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))]
+refillIssuanceIns =
+    [ Nothing
+    , Just $ Left $ BookEv   bk3
+    , Just     $ Right $ FillsEv [FillEv Ask (Price 1000) (Vol 0.2) (Just 0)]
+    , Just $ Left $ BookEv   bk3  -- no exposure available
+    , Just $ Left $ FillsEv [FillEv Bid (Price 1000) (Vol 0.2) Nothing]
+    , Just $ Left $ BookEv   bk3  -- now re-issue target
+    , Just $ Left $ BookEv   bk4  -- clear old levels
+    ]
+
+refillIssuanceExpectedAs :: forall p v. (Coin p, Coin v) => [ Maybe ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)) )]
+refillIssuanceExpectedAs =
+    [ Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 3) (Just 0)]))
+    , Just $ (Just (Advice ("",ZipList {getZipList = [PlaceLimit Bid (Price 1000) (Vol 0.2) Nothing]})), Nothing)
+    , Just $ (Nothing, Just $ Advice ("", ZipList []))
+    , Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 0.2) (Just 1)]))
+    , Just $ (Nothing, Just $ Advice ("",ZipList {getZipList =
+                                                  [ PlaceLimit {aSide = Ask, aPrice = Price 1500.00000000, aVol = Vol 1.00, amCOID = Just (COID 2)}
+                                                  , CancelLimit {aCOID = COID 0}
+                                                  , CancelLimit {aCOID = COID 1}
+                                                  ]}))
+    ]
+
+
+--------------------------------------------------------------------------------
+-- test for unnecessary re-issuance for target that has been cancelled.
+
+cancellationIssuanceIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))]
+cancellationIssuanceIns =
+    [ Nothing
+    , Just $ Left $ BookEv   bk3
+    , Just $ Left $ BookEv   bk4  -- no more orders at $1000
+    , Just     $ Right $ FillsEv [FillEv Ask (Price 1000) (Vol 3) (Just 0)]
+    , Just $ Left $ BookEv   bk3
+    ]
+
+cancellationIssuanceExpectedAs :: forall p v. (Coin p, Coin v) => [ Maybe ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)) )]
+cancellationIssuanceExpectedAs =
+    [ Nothing
+    , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 3) (Just 0)]))
+    , Just $ (Nothing, Just $ Advice ("", ZipList {getZipList =
+                                                    [ PlaceLimit {aSide = Ask, aPrice = Price 1500, aVol = Vol 1, amCOID = Just (COID 1)}
+                                                    , CancelLimit {aCOID = COID 0}
+                                                    ]}))
+    , Just $ (Just (Advice ("",ZipList {getZipList = [PlaceLimit Bid (Price 1000) (Vol 3) Nothing]})), Nothing)
+    , Just $ (Nothing, Just $ Advice ("", ZipList []))
     ]
