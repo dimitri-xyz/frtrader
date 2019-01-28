@@ -16,7 +16,7 @@ import Strategy
 
 import Market.Types ( Coin(..)
                     , BTC(..)
-                    , ETH(..)
+                    , USD(..)
                     , StrategyAdvice(..)
                     )
 
@@ -26,7 +26,7 @@ import qualified Data.HashMap.Strict as H
 
 --------------------------------------------------------------------------------
 main :: IO ()
-main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol ETH)
+main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol USD)
 --------------------------------------------------------------------------------
 
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
@@ -54,12 +54,17 @@ tests _ _ = testGroup " Trading Strategy Tests"
 
     , testCase "mirroringStrategy" $ do
         outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (binaryIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
-        assertEqual "Output list does not match" binaryExpectedAs (fmap (fmap (fmap removeReasoning)) <$> outputEvents)
+        assertEqual "Output list does not match" binaryExpectedAs (fmap removeComments <$> outputEvents)
 
     ]
 
 removeReasoning :: StrategyAdvice a -> StrategyAdvice a
 removeReasoning (Advice (r, a)) = Advice ("", a)
+
+removeComments 
+    :: ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))
+    -> ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))
+removeComments (a,b) = (fmap removeReasoning a, fmap removeReasoning b)
 
 --------------------------------------------------------------------------------
 -- FIX ME! Compiler requires this type signature. Why? Monomorphism?
@@ -207,8 +212,7 @@ binaryIns =
     , Nothing
     , Just     $ Right $ FillsEv [FillEv Ask (Price 1000) (Vol 0.2) (Just 0)]
     , Just $ Left $ CancelEv (Just 333)
-    -- FIX ME! Failing this due to numerical instability
-    -- , Just $ Left $ BookEv   bk3
+    , Just $ Left $ BookEv   bk3
     , Just $ Left $ PlaceEv  undefined
     , Just $ Left $ BookEv   bk4
     ]
@@ -228,11 +232,9 @@ binaryExpectedAs =
     , Nothing
     , Just $ (Nothing, Just $ Advice ("", ZipList []))
     , Nothing
-    , Just $ (Just (Advice ("Refill Vol 0.2 from ClientOID: COID 0\n",ZipList {getZipList = [PlaceLimit Bid (Price 1000) (Vol 0.2) Nothing]})), Nothing)
+    , Just $ (Just (Advice ("",ZipList {getZipList = [PlaceLimit Bid (Price 1000) (Vol 0.2) Nothing]})), Nothing)
     , Nothing
-    -- FIX ME! Failing this due to numerical instability
-    -- , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 2) (Just 1)]))
+    , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 2) (Just 1)]))
     , Nothing
-    , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1500) (Vol 1) (Just 1), CancelLimit 0{-, CancelLimit 1 -}]))
+    , Just $ (Nothing, Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1500) (Vol 1) (Just 2), CancelLimit 0, CancelLimit 1 ]))
     ]
-
