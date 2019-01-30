@@ -32,6 +32,7 @@ data FillEv price vol
 data TradingEv price vol quoteTail counter
     = PlaceEv   (Maybe ClientOID)
     | CancelEv  (Maybe ClientOID)
+    | DoneEv    (Maybe ClientOID)
     | FillsEv   [FillEv price vol]
     | BookEv    (QuoteBook price vol quoteTail counter)
     deriving (Show, Eq)

@@ -60,9 +60,11 @@ tests _ _ = testGroup " Trading Strategy Tests"
         outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (refillIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
         assertEqual "Output list does not match" refillIssuanceExpectedAs (fmap removeComments <$> outputEvents)
 
-    , testCase "mirroringStrategy - Cancellation reissuance" $ do
+    , testCase "mirroringStrategy - Cancellation \"placement\"  reissuance" $ do
         outputEvents <- interpretFrameworks (uncurry mirroringStrategy . split) (cancellationIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
         assertEqual "Output list does not match" cancellationIssuanceExpectedAs (fmap removeComments <$> outputEvents)
+
+    -- , testCase "mirroringStrategy - Cancellation cancel reissuance" $ do
 
     ]
 
@@ -123,10 +125,15 @@ copyExpectedAs =
     , Nothing
     , Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 2) (Just 1)])
     , Nothing
-    , Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1500) (Vol 1) (Just 2), CancelLimit 0, CancelLimit 1])
+    -- Cannot place new order because we are already at exposure limit. Must wait for `CancelEv`s first.
+    , Just $ Advice ("", ZipList [{- PlaceLimit Ask (Price 1500) (Vol 1) (Just 2),-} CancelLimit 0, CancelLimit 1]) 
     ]
 
 ------------------------------------------------------------------------------
+-- Action with ClientOID = Just 2 is somehow missing, but for this event to have been received from the framework, it
+-- must be the case, that we created this order in the past (otherwise the event would not be dispatched to the strategy)
+-- Thus, we will ask for a refill.
+-- Is this the failure mode we want, though? "when in doubt, refill"
 refillInEs :: forall p v q c. (Coin p, Coin v) => [Maybe (TradingEv p v q c)]
 refillInEs = 
     [ Nothing
@@ -135,11 +142,12 @@ refillInEs =
     , Just $ PlaceEv Nothing
     , Just $ CancelEv (Just 7)
     , Nothing
-    , Just $ FillsEv [FillEv Ask (Price 1000) (Vol 1) (Just 2)] -- unknown ClientOID, thus ignored
+    , Just $ FillsEv [FillEv Ask (Price 1000) (Vol 1) (Just 2)]
     , Just $ CancelEv (Just 444)
     , Just $ FillsEv [ FillEv Ask (Price 1500) (Vol 2) (Just 1)
                      , FillEv Ask (Price 1000) (Vol 3) (Just 0)]
     , Just $ CancelEv (Just 9)
+    , Just $ DoneEv   (Just 0)
     ]
 
 refillExpectedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
@@ -150,10 +158,11 @@ refillExpectedAs =
     , Just mempty
     , Just mempty
     , Nothing
-    , Just mempty
+    , Just $ Advice ("", ZipList [PlaceLimit Bid (Price 1000) (Vol 1) Nothing])
     , Just mempty
     , Just $ Advice ("", ZipList [ PlaceLimit Bid (Price 1500) (Vol 2) Nothing
                                  , PlaceLimit Bid (Price 1000) (Vol 3) Nothing])
+    , Just mempty
     , Just mempty
     ]
 
@@ -178,7 +187,7 @@ refillFinalState = Just $
             [ ((Ask, Price 1500), H.singleton 1 (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 3}) )
             , ((Ask, Price 3000), H.singleton 8 (OpenAction {oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )]
         , nextCOID = 10
-        , realizedExposure = Vol (6 :: v)
+        , realizedExposure = Vol (7 :: v)
         }
 
 --------------------------------------------------------------------------------
@@ -249,7 +258,7 @@ binaryExpectedAs =
 
 
 --------------------------------------------------------------------------------
--- test for unnecessary re-issuance for target that has not yet been refilled.
+-- test for unnecessary re-issuance of placement for target that has not yet been refilled.
 
 refillIssuanceIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))]
 refillIssuanceIns =
@@ -279,7 +288,7 @@ refillIssuanceExpectedAs =
 
 
 --------------------------------------------------------------------------------
--- test for unnecessary re-issuance for target that has been cancelled.
+-- test for unnecessary re-issuance of placement for target that has been cancelled.
 
 cancellationIssuanceIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))]
 cancellationIssuanceIns =
@@ -288,6 +297,7 @@ cancellationIssuanceIns =
     , Just $ Left $ BookEv   bk4  -- no more orders at $1000
     , Just     $ Right $ FillsEv [FillEv Ask (Price 1000) (Vol 3) (Just 0)]
     , Just $ Left $ BookEv   bk3
+    , Just     $ Right $ CancelEv (Just 0)
     ]
 
 cancellationIssuanceExpectedAs :: forall p v. (Coin p, Coin v) => [ Maybe ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)) )]
@@ -301,3 +311,12 @@ cancellationIssuanceExpectedAs =
     , Just $ (Just (Advice ("",ZipList {getZipList = [PlaceLimit Bid (Price 1000) (Vol 3) Nothing]})), Nothing)
     , Just $ (Nothing, Just $ Advice ("", ZipList []))
     ]
+
+
+--------------------------------------------------------------------------------
+-- test for unnecessary re-issuance of cancellation for target that has been cancelled.
+
+
+--------------------------------------------------------------------------------
+-- test for, placing an exposure limited order and then later automatically placing remaining orders 
+-- after receiving `CancelEv` and no longer being limited by exposure.

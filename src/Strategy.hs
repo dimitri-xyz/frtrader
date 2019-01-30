@@ -29,7 +29,7 @@ data ActionState p v =
     ActionState 
         { openActionsMap   :: OpenActionsMap p v
         , nextCOID         :: ClientOID -- ^ next available "Client Order ID"
-        , realizedExposure :: Vol v     -- ^ negative = we are oversold, positive = we are overbought
+        , realizedExposure :: Vol v     -- ^ negative = we are overbought, positive = we are oversold, sold too many need to recoup
         } deriving (Show, Eq)
 
 type MarketState p v = State (ActionState p v)
@@ -67,57 +67,56 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
 
     updateQuoteBook :: TradingEv p v q c -> MarketState p v (StrategyAdvice (Action p v))
     updateQuoteBook ev = do
-        exposures <- gets realizedExposure
-        combineTargets (getTargets exposures ev)
+        exposure <- gets realizedExposure
+        combineTargets (getTargets exposure ev)
 
     getTargets :: Vol v -> TradingEv p v q c -> [Target p v] 
     getTargets exposure ev = issueTargets maxExposure exposure (toBook ev)
 
     combineTargets :: [Target p v] -> MarketState p v (StrategyAdvice (Action p v))
     combineTargets targets = do
-        a  <- cleanupOldLevels targets
-        as <- mapM addTarget targets
+        a  <- cancelOldLevels targets
+        as <- mapM addOrUpdateTarget targets
         return (foldr mappend a as)
 
     -- Cancels ALL open actions on ALL price-levels that are not on the new targets list.
-    cleanupOldLevels :: [Target p v] -> MarketState p v (StrategyAdvice (Action p v))
-    cleanupOldLevels targets = do
-        oldState <- get
-        let oldActionsMap = openActionsMap oldState
-            newKeysMap    = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
+    cancelOldLevels :: [Target p v] -> MarketState p v (StrategyAdvice (Action p v))
+    cancelOldLevels targets = do
+        oldActionsMap <- gets openActionsMap
 
-            differenceMap   = H.difference   oldActionsMap newKeysMap
-            intersectionMap = H.intersection oldActionsMap newKeysMap
+        let newKeysMap     = H.fromList $ (\(s, p, v) -> ((s, p),())) <$> targets
+            differenceMap  = H.difference oldActionsMap newKeysMap -- In old but not in new targets
+            priceLevels    = H.keys differenceMap
 
-            oldActions     = ZipList . fmap fst . concat . fmap H.toList . fmap snd . H.toList $ differenceMap
-            removalActions = CancelLimit <$> oldActions
-
-            newActionMap = intersectionMap -- BUG!! FIX ME! I can't immediately delete an action. I don't know if extra fills will execute before the cancellation.
-            newAdvice    = Advice ("Remove old unmatched price-levels: "
-                                    <> show (removalActions :: ZipList (Action p v)) 
-                                    <> "\n", removalActions)
-
-        put oldState{openActionsMap = newActionMap}
-        return newAdvice
+        as <- mapM (uncurry subtractAllVol) priceLevels
+        return (foldr (<>) mempty as)
 
     -- subtractVol has to subtract *at least* the amount of volume requested. It MAY cancel more, but it should avoid unnecessary cancellations.
     -- TO DO: This is currently a naïve implementation. It just cancels *all* pending orders at given (OrderSide, Price).
     subtractVol :: OrderSide -> Price p -> Vol v -> MarketState p v (StrategyAdvice (Action p v))
-    subtractVol sd p v = do
+    subtractVol sd p _v = subtractAllVol sd p
+
+    subtractAllVol :: OrderSide -> Price p -> MarketState p v (StrategyAdvice (Action p v))
+    subtractAllVol sd p = do
         state <- get
         let oldActionsMap  = openActionsMap state
-            oldActions     = ZipList . fmap fst . H.toList $ H.lookupDefault H.empty (sd,p) oldActionsMap
-            removalActions = CancelLimit <$> oldActions
-            newActionMap   = H.delete (sd, p) oldActionsMap -- BUG!! FIX ME! I can't immediately delete an action. I don't know if extra fills will execute before the cancellation.
+            oldInnerMap    = H.lookupDefault H.empty (sd,p) oldActionsMap
+            oldActions     = ZipList . fmap fst . H.toList $ oldInnerMap
+
+            removalActions = CancelLimit  <$> oldActions
+            newInnerMap    = markCanceled <$> oldInnerMap
+            markCanceled a = a {oaCancelled = True}
+
+            newActionMap   = H.adjust (const newInnerMap) (sd, p) oldActionsMap
             newAdvice      = Advice ( "Cancelling all actions to subtract volume: " 
                                       <> show (removalActions :: ZipList (Action p v)) 
                                       <> "\n"
                                     , removalActions)
         put state{openActionsMap = newActionMap}
         return newAdvice
-        
-    addTarget :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
-    addTarget (sd, p, v) = do
+
+    addOrUpdateTarget :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
+    addOrUpdateTarget (sd, p, v) = do
         oldVol <- gets $ getStillOpenVol (sd, p)
         case compare v oldVol of
             EQ -> return mempty
@@ -126,16 +125,17 @@ copyBookStrategy es bSt = return (eUpdateState `invApply` bSt)
                 subAdv <- subtractVol sd p (oldVol - v)
                 oldVol' <- gets $ getStillOpenVol (sd, p)
                 case compare v oldVol' of
-                    LT -> error "addTarget: Could not subtract enough volume to go below or match target:"
+                    LT -> error "addOrUpdateTarget: Could not subtract enough volume to go below or match target:"
                     EQ -> return subAdv
                     GT -> do
                         addAdv <- addVol sd p (v - oldVol')
                         return (subAdv <> addAdv)
 
+    -- *Never deletes OpenActions*, only inserts them.
     addVol :: OrderSide -> Price p -> Vol v -> MarketState p v (StrategyAdvice (Action p v))
     addVol sd p v = do
         state <- get
-        let curOID = nextCOID state
+        let curOID        = nextCOID state
             oldActionsMap = openActionsMap state
             newAction     = PlaceLimit sd p v (Just curOID)
             newOpenAction = OpenAction v (Vol 0) False
@@ -221,8 +221,10 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
     refillUpdate :: (Coin p, Coin v) => TradingEv p v q c -> ActionState p v -> (StrategyAdvice (Action p v), ActionState p v)
     refillUpdate (FillsEv fills) = runState (foldr (<>) mempty <$> mapM refillAsks fills)
     refillUpdate (CancelEv moid) = runState (cancelOpenAction moid)
+    refillUpdate (DoneEv   moid) = runState (doneOpenAction moid)
     refillUpdate _               = runState (return mempty)
 
+    -- This procedure and `doneOpenAction` are the only procedures that can delete an OpenAction
     -- Assumes there will be only one OpenAction with a given ClientOID in the whole market
     cancelOpenAction :: (Coin p, Coin v) => Maybe ClientOID -> MarketState p v (StrategyAdvice (Action p v))
     cancelOpenAction  Nothing    = error "cancelOpenAction expects all orders to have a valid ClientOID on monitored side"
@@ -233,35 +235,47 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
         put state {openActionsMap = newMap}
         return mempty
 
+    -- This procedure and `cancelOpenAction` are the only procedures that can delete an OpenAction
+    -- Assumes there will be only one OpenAction with a given ClientOID in the whole market
+    doneOpenAction :: (Coin p, Coin v) => Maybe ClientOID -> MarketState p v (StrategyAdvice (Action p v))
+    doneOpenAction  Nothing    = error "doneOpenAction expects all orders to have a valid ClientOID on monitored side"
+    doneOpenAction (Just coid) = do
+        state <- get
+        let newMap          = cleanupOuterMap (H.update updater coid <$> openActionsMap state)
+            cleanupOuterMap = H.mapMaybe (\hm -> if null hm then Nothing else Just hm)
+
+            noUnfilledVol oa = oaVolume oa - oaExecdVol oa == 0
+            updater       oa = if noUnfilledVol oa 
+                                    then Nothing 
+                                    else (error $ "`DoneEv` removed an action that still had unfilled volume. ClientOID:" <> show coid)
+
+        put state {openActionsMap = newMap}
+        return mempty
+
+    -- Assumes there will be only one OpenAction with a given ClientOID in the whole market
     refillAsks :: (Coin p, Coin v) => FillEv p v -> MarketState p v (StrategyAdvice (Action p v))
     refillAsks (FillEv _        _          _       Nothing   ) = error "refillAsks expects all orders to have valid ClientOID on monitored side"
     refillAsks (FillEv sd fp@(Price _) fv@(Vol _) (Just coid)) = do
         state <- get
-        case H.lookup (Ask, fp) (openActionsMap state) of
-            Nothing       -> return mempty
-            Just innerMap -> case H.lookup coid innerMap of
-                Nothing -> return mempty
-                Just oa -> do
-                    let newOrder = PlaceLimit Bid fp fv Nothing
-                        oa' = oa {oaExecdVol = oaExecdVol oa + fv}
+        let newOrder       = PlaceLimit Bid fp fv Nothing -- FIX ME! I want to original order price here, not the fill price.
+            newMap         = H.adjust (adjuster fv) coid <$> openActionsMap state
+            adjuster fv oa = if fv > (oaVolume oa - oaExecdVol oa)
+                                then error ("WHAAAAATTT!!!! The impossible happened - Filled more than was still open " <> show coid) -- FIX ME!
+                                else oa {oaExecdVol = oaExecdVol oa + fv}
 
-                        innerUpdater = case compare fv (oaVolume oa - oaExecdVol oa) of
-                            GT -> error "WHAAAAATTT!!!! The impossible happened - Filled more than was still open" -- FIX ME!
-                            EQ -> const Nothing     -- exact match, remove this entry
-                            LT -> const (Just oa')
-                    
-                        innerMap' = H.update innerUpdater coid innerMap
+        put state {realizedExposure = realizedExposure state + fv, openActionsMap = newMap}
+        return $ Advice ("Refill " <> show fv <> " from ClientOID: " <> show coid <> "\n", ZipList [newOrder])
 
-                        outerUpdater = if null innerMap' then const Nothing else const (Just innerMap')
-                        outerMap     = H.update outerUpdater (Ask, fp) (openActionsMap state) 
+------------------------------------------------
+issueTargets :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> [Target p v]
+issueTargets (Vol maxExposure) (Vol realizedExposure) = maybe [] (:[]) . fmap (\q -> (side q, price q, min (Vol $ maxExposure - realizedExposure) (volume q) )) . safeHead . asks
 
-                    put state {realizedExposure = realizedExposure state + fv, openActionsMap = outerMap}
-                    return $ Advice ("Refill " <> show fv <> " from ClientOID: " <> show coid <> "\n", ZipList [newOrder])
+maxExposure :: Coin v => Vol v
+maxExposure = Vol 3
 
-
+------------------------------------------------
 invApply :: Event (a -> b) -> Behavior a -> Event b 
 invApply es b = flip ($) <$> b <@> es 
-
 
 selfUpdateState
     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
@@ -273,18 +287,3 @@ selfUpdateState strategy initialState es = mdo
     bState <- stepper initialState (snd <$> ePair)
     ePair  <- strategy es bState
     return ePair
-
-
--- ------------------------------------------------
--- unions :: [Event (a -> a)] -> Event (a -> a)
--- unionWith :: (a -> a -> a) -> Event a -> Event a -> Event a
--- stepper :: MonadMoment m => a -> Event a -> m (Behavior a) 
--- accumE :: MonadMoment m => a -> Event (a -> a) -> m (Event a) 
--- accumB :: MonadMoment m => a -> Event (a -> a) -> m (Behavior a) 
--- mapAccum' :: MonadMoment m => acc -> Event (acc -> (x,acc)) -> m (Event x, Behavior acc)
-
-issueTargets :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> [Target p v]
-issueTargets (Vol maxExposure) (Vol realizedExposure) = maybe [] (:[]) . fmap (\q -> (side q, price q, min (Vol $ maxExposure - realizedExposure) (volume q) )) . safeHead . asks
-
-maxExposure :: Coin v => Vol v
-maxExposure = Vol 3
