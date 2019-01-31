@@ -20,11 +20,8 @@ import           Market.Types ( Coin(..), StrategyAdvice(..) )
 
 import qualified Data.HashMap.Strict as H
 
-import Debug.Trace
 -- --------------------------------------------------------------------------------
--- | Copies orderbook
-
-type OpenActionsMap p v = H.HashMap ClientOID (OpenAction p v)
+type MarketState p v = State (ActionState p v)
 
 data ActionState p v = 
     ActionState 
@@ -33,7 +30,7 @@ data ActionState p v =
         , realizedExposure :: Vol v     -- ^ negative = we are overbought, positive = we are oversold, sold too many need to recoup
         } deriving (Show, Eq)
 
-type MarketState p v = State (ActionState p v)
+type OpenActionsMap p v = H.HashMap ClientOID (OpenAction p v)
 
 data OpenAction price vol
     = OpenAction
@@ -41,7 +38,7 @@ data OpenAction price vol
         , oaPrice     :: Price price
         , oaVolume    :: Vol vol
         , oaExecdVol  :: Vol vol
-        , oaCancelled :: Bool -- have we already asked to cancel this order?
+        , oaCancelled :: Bool -- answers: have we already asked to cancel this order?
         } deriving (Show, Eq)
 
 emptyState :: forall p v. (Coin p, Coin v) => ActionState p v
@@ -54,6 +51,26 @@ emptyState =
 
 type Target p v = (OrderSide, Price p, Vol v)
 
+--------------------------------------------------------------------------------
+mirrorStrategy
+    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => Vol v -> Event (TradingEv p v q c) -> Event (TradingEv p v q c) 
+    -> m (Event (Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))) 
+mirrorStrategy maxExposure es1 es2 = mdo
+    bState <- stepper emptyState $ 
+                unionWith errorSimultaneousUpdate (snd <$> eCopy) $
+                unionWith errorSimultaneousUpdate (snd <$> eFill) eExpo
+    eCopy  <- copyBookStrategy maxExposure es1 bState
+    eFill  <- refillAsksStrategy           es2 bState
+    eExpo  <- exposureControl              es1 bState
+    return $ unionWith (\p q ->(fst p, snd q)) (toFst . fst <$> eFill) (toSnd . fst <$> eCopy)
+  where
+    toFst x = (Just x, Nothing) 
+    toSnd x = (Nothing, Just x)
+    errorSimultaneousUpdate = error "State updates must not have happenned at the same time."
+
+--------------------------------------------------------------------------------
+-- | Copies orderbook from source to destination market
 copyBookStrategy :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
     => Vol v -> Event (TradingEv p v q c) -> Behavior (ActionState p v) -> m (Event (StrategyAdvice (Action p v), ActionState p v))
 copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
@@ -84,7 +101,7 @@ copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
 
     -- Cancels all open actions on price-levels that do not match the target.
     cancelOldPriceLevels :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
-    cancelOldPriceLevels t = trace " Cancelling old levels " $ do
+    cancelOldPriceLevels t = do
         state <- get 
         let (cancelAction, newActionsMap) = H.traverseWithKey (cancelMismatched t) (openActionsMap state)
             cancelMismatched (sd, p, _) k oa = if sd == oaSide oa && p == oaPrice oa
@@ -96,6 +113,7 @@ copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
         put state {openActionsMap = newActionsMap}
         return cancelAction
 
+    -- FIX ME! DRY violation with `cancelOldPriceLevels`
     subtractAllVolAt :: OrderSide -> Price p -> MarketState p v (StrategyAdvice (Action p v))
     subtractAllVolAt sd p = do
         state <- get
@@ -116,12 +134,12 @@ copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
     -- It "lazily" uses any allowable exposure we currently have.
     -- It is more aggressive for increases in volume immediately placing new orders.
     lazyUpdateTargetPriceLevel :: Target p v -> MarketState p v (StrategyAdvice (Action p v))
-    lazyUpdateTargetPriceLevel t@(sd, p, targetVol) = traceShow t $ do
+    lazyUpdateTargetPriceLevel t@(sd, p, targetVol) = do
         oldVol <- gets (getOpenVolAtTarget t)
-        case traceShow oldVol $ compare targetVol oldVol of
-            EQ -> trace " Nothing " $ return mempty
-            GT -> trace " Adding! " $ addVol maxExposure sd p (targetVol - oldVol)
-            LT -> trace " Subbing " $ subtractVolAt      sd p (oldVol - targetVol)
+        case compare targetVol oldVol of
+            EQ -> return mempty
+            GT -> addVol maxExposure sd p (targetVol - oldVol)
+            LT -> subtractVolAt      sd p (oldVol - targetVol)
 
     getOpenVolAtTarget :: Target p v -> ActionState p v -> Vol v
     getOpenVolAtTarget (sd, p, _) state =
@@ -189,35 +207,6 @@ updateAskExposure (FillsEv fills) = mapM_ updateAskFill fills
         st <- get
         put st {realizedExposure = realizedExposure st - vol}
         return ()
-
--- FIX FIX ME! Write/modify tests to ensure this now works before removing the comment.
-{-
-FIX ME!
-There's a synchronization bug on this strategy "as is". When an order fill is detected. The open order state is immediately updated,
-but we may still have to re-fill the account balances. If, in this interval, another orderbook event is issued, the
-strategy will ask for the amount sold to be put on sale *again* even though we have not yet re-filled it.
-To avoid this, we need to somehow keep track of the balances that are pending refills (and take these into consideration 
-before asking for more placements).
-
--}
-
-
--- mirroringStrategy
---     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
---     => Event (TradingEv p v q c) -> Event (TradingEv p v q c) 
---     -> m (Event (Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))) 
--- mirroringStrategy es1 es2 = mdo
---     bState <- stepper emptyState $ 
---                 unionWith errorSimultaneousUpdate (snd <$> eCopy) $
---                 unionWith errorSimultaneousUpdate (snd <$> eFill) eExpo
---     eCopy  <- copyBookStrategy   es1 bState
---     eFill  <- refillAsksStrategy es2 bState
---     eExpo  <- exposureControl    es1 bState
---     return $ unionWith (\p q ->(fst p, snd q)) (toFst . fst <$> eFill) (toSnd . fst <$> eCopy)
---   where
---     toFst x = (Just x, Nothing) 
---     toSnd x = (Nothing, Just x)
---     errorSimultaneousUpdate = error "State updates must not have happenned at the same time."
 
 --------------------------------------------------------------------------------
 -- | places orders to refill balances that were depleted from executed orders
