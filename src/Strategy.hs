@@ -83,7 +83,7 @@ copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
 
     toBook :: TradingEv p v q c -> QuoteBook p v q c
     toBook (BookEv book) = book
-    toBook ev            = error $ "toBook Error: attempting to convert trading event to QuoteBook." 
+    toBook ev            = error "toBook Error: attempting to convert trading event to QuoteBook." 
 
     updateQuoteBook :: TradingEv p v q c -> MarketState p v (StrategyAdvice (Action p v))
     updateQuoteBook = trackTarget . getAskTarget
@@ -104,11 +104,10 @@ copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
     cancelOldPriceLevels t = do
         state <- get 
         let (cancelAction, newActionsMap) = H.traverseWithKey (cancelMismatched t) (openActionsMap state)
-            cancelMismatched (sd, p, _) k oa = if sd == oaSide oa && p == oaPrice oa
-                then (mempty, oa) -- price-level matches current target, do nothing
-                else if oaCancelled oa == True 
-                    then (mempty, oa) -- already cancelled
-                    else (Advice ("cancelMismatched - Cancelling price-level. ClientOID: " <> show k, ZipList [CancelLimit k]), oa {oaCancelled = True}) 
+            cancelMismatched (sd, p, _) k oa 
+                | sd == oaSide oa && p == oaPrice oa = (mempty, oa) -- price-level matches current target, do nothing
+                | oaCancelled oa                     = (mempty, oa) -- already cancelled
+                | otherwise                          = (Advice ("cancelMismatched - Cancelling price-level. ClientOID: " <> show k <> "\n", ZipList [CancelLimit k]), oa {oaCancelled = True}) 
 
         put state {openActionsMap = newActionsMap}
         return cancelAction
@@ -119,11 +118,10 @@ copyBookStrategy maxExposure es bSt = return (eUpdateState `invApply` bSt)
         state <- get
         let (cancelAction, newActionsMap) = H.traverseWithKey (cancelIfMatching sd p) (openActionsMap state)
 
-            cancelIfMatching sd p k oa    = if sd /= oaSide oa || p /= oaPrice oa
-                then (mempty, oa) -- price-level does not match, do nothing
-                else if oaCancelled oa == True
-                    then (mempty, oa) -- already cancelled
-                    else (Advice ("cancelMismatched - Cancelling price-level. ClientOID: " <> show k <> "\n", ZipList [CancelLimit k]), oa {oaCancelled = True}) 
+            cancelIfMatching sd p k oa 
+                | sd /= oaSide oa || p /= oaPrice oa = (mempty, oa) -- price-level does not match, do nothing
+                | oaCancelled oa                     = (mempty, oa) -- already cancelled
+                | otherwise                          = (Advice ("cancelIfMatching - Cancelling price-level. ClientOID: " <> show k <> "\n", ZipList [CancelLimit k]), oa {oaCancelled = True}) 
 
         put state {openActionsMap = newActionsMap}
         return cancelAction
@@ -240,7 +238,7 @@ refillAsksStrategy es bState = return $ (refillUpdate <$> es) `invApply` bState
         let noUnfilledVol oa = oaVolume oa - oaExecdVol oa == 0
             updater       oa = if noUnfilledVol oa 
                                     then Nothing 
-                                    else (error $ "`DoneEv` removed an action that still had unfilled volume. ClientOID:" <> show coid)
+                                    else error ("`DoneEv` removed an action that still had unfilled volume. ClientOID:" <> show coid)
 
         put state {openActionsMap = H.update updater coid (openActionsMap state)}
         return mempty

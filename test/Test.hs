@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RecursiveDo #-}
 
 module Main where
 
@@ -52,7 +51,7 @@ tests _ _ = testGroup " Trading Strategy Tests"
         let exposureControl' = fmap (fmap (fmap (fmap (\action -> (mempty, action))))) exposureControl
         outputPairs <- interpretFrameworks
                             (selfUpdateState exposureControl' expoInitialState)
-                            ((fmap snd expoOutInEs) :: [Maybe(TradingEv p v q c)])
+                            (fmap snd expoOutInEs :: [Maybe(TradingEv p v q c)])
         let outputStates = fmap snd <$> outputPairs
         assertEqual "Final output state does not match" 
             (fmap fst (expoOutInEs :: [(Maybe (Vol v), Maybe (TradingEv p v q c))]) ) (fmap realizedExposure <$> outputStates)
