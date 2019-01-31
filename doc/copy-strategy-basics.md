@@ -3,19 +3,19 @@
 The current implementation of the book mirroring strategy makes a few assumptions:
 
 1. All requests will eventually succeed - This is a big assumption, but it enables us only to track the requests rather than the actual placements/cancellations at the exchange. This will likely be refined later.
-2. Mirroring is done by defining a few (side, price, vol) targets to be placed in the destination (least liquid) exchange.
+2. Mirroring is done by defining a (side, price, vol) target to be placed in the destination (least liquid) exchange.
 3. We can keep track of orders per ClientOid rather than by the exchange's actual OrderID. The framework is responsible for matching the two identifiers. This enables strategies to be deterministic (although stateful).
 4. All memory is kept in the internal "State" and this state can change due to orderbook events or executions at the exchanges. See the powerpoint presentation for more details.
 
 
 ### Action Life-Cycle
 
-Once requested by the strategy, an Action is considered "open", even if it has not yet been requested to the exchange. Cancellation Actions only ever attempt the cancellation, they do not guarantee it, so they never "fail".
+Once requested by the strategy, an Action is considered "open", even if it has not yet been requested to the exchange. Cancellation Actions only ever attempt the cancellation, they do not guarantee it, so they never "fail". They are *attempts* that just are not effective at cancelling.
 
 
 ### Rationale
 
-The orderbook mirroring will be defined by a "target definition function" of the source orderbook and current exposure levels. For each orderbook event, we need to produce a corresponding list of target "price-levels" and "volumes" for the receiving book. The targets can be arbitrarily defined and there may be multiple per source orderbook.
+The orderbook mirroring will be defined by a "target definition function" of the source orderbook. For each orderbook event, we need to produce a corresponding target "price-level" and "volume" for the receiving book. The target can be arbitrarily defined.
 
 
 ### Price-level Matching
@@ -28,10 +28,6 @@ Once we define a target (side, price, volume) triple, we can just look at the re
 The disappearance of a target or a change in price may leave orders in a price-level "orphaned". Those orders should be cancelled.
 
 The is no structure to the relationship (i.e. it's a simple relation, not a function) between the target (side, price, volume) triple and the current (side, price-level, volume) pairs we have open through requested orders. Targets may disappear and order may be executed or nothing may happen. Each time we strive to maintain a 1-to-1 correspondence, but this will be challenged (and turned from a bijection into a relation) at every new orderbook event and every new order execution.
-
-Matching is per "price-level", this is additive on targets. In other words, two targets with a volume of 1.0 and 0.5 at the same price-level can be combined into a single target of 1.5. If I perform this first, the matching "per price-level" will be easier. This is because the HashMap data structure can be used to perform set difference or intersection. (This is set difference)
-
-Notice that this is distinct from order placement. I cannot combine two StrategyAdvice placement actions into a single order because each orther would have a distinct client_oid and then I would not be able to only cancel part of an order when given that client_oid in a cancellation request. But this is different from the targets (and the targets are going to be recalculated at each QuoteBook event anyway).
 
 #### Update 2019-01-17
 
@@ -56,6 +52,12 @@ Unfortunately, keeping track of exposure on a "per price-level" sense is very co
 2. One QuoteBook event can fire multiple targets. The targets must all know about it each other to collaboratively control exposure, but multiple targets can be issued.
 
 This greatly simplifies the refill strategy and the new "exposure control" strategy, while keeping the current multiple target dispatch mechanism that we will need very soon (it's the next strategy we will offer).
+
+#### Update 2019-01-31
+
+1. Removed from this document paragraphs on multiple targets and others that no longer apply.
+
+2. Unlike described in the (Update 2019-01-17) I completely ripped out the multiple targets mechanism. It became a complicated nuissance.
 
 
 
