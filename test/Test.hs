@@ -28,17 +28,17 @@ main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol USD)
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
 tests _ _ = testGroup " Trading Strategy Tests"
     [ testCase "copyBookStrategy - exposure ok" $ do
-        outputPairs <- interpretFrameworks (selfUpdateState (copyBookStrategy 5) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])  
+        outputPairs <- interpret (selfUpdateState (copyBookStrategy 5) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
         let outputActions = fmap fst <$> outputPairs
         assertEqual "Output list does not match" copyExpoOKAs (fmap removeReasoning <$> outputActions)
 
     , testCase "copyBookStrategy - restricted exposure" $ do
-        outputPairs <- interpretFrameworks (selfUpdateState (copyBookStrategy 3) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])  
+        outputPairs <- interpret (selfUpdateState (copyBookStrategy 3) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
         let outputActions = fmap fst <$> outputPairs
         assertEqual "Output list does not match" copyExpoRestrictedAs (fmap removeReasoning <$> outputActions)
 
     , testCase "refillAsksStrategy" $ do
-        outputPairs <- interpretFrameworks (selfUpdateState refillAsksStrategy refillInitialState) (refillInEs :: [Maybe(TradingEv p v q c)])
+        outputPairs <- interpret (selfUpdateState refillAsksStrategy refillInitialState) (refillInEs :: [Maybe(TradingEv p v q c)])
         let outputActions = fmap fst <$> outputPairs
             outputStates  = fmap snd <$> outputPairs
         assertEqual "Output list does not match"        refillExpectedAs (fmap removeReasoning <$> outputActions)
@@ -46,7 +46,7 @@ tests _ _ = testGroup " Trading Strategy Tests"
 
     , testCase "exposureControl" $ do
         let exposureControl' = fmap (fmap (fmap (fmap (\action -> (mempty, action))))) exposureControl
-        outputPairs <- interpretFrameworks
+        outputPairs <- interpret
                             (selfUpdateState exposureControl' expoInitialState)
                             (fmap snd expoOutInEs :: [Maybe(TradingEv p v q c)])
         let outputStates = fmap snd <$> outputPairs
@@ -54,15 +54,15 @@ tests _ _ = testGroup " Trading Strategy Tests"
             (fmap fst (expoOutInEs :: [(Maybe (Vol v), Maybe (TradingEv p v q c))]) ) (fmap realizedExposure <$> outputStates)
 
     , testCase "mirrorStrategy - Output/State" $ do
-        outputEvents <- interpretFrameworks (uncurry (mirrorStrategy 5) . split) (binaryIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
+        outputEvents <- interpret (uncurry (mirrorStrategy 5) . split) (binaryIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
         assertEqual "Output list does not match" binaryExpectedAs (fmap removeComments <$> outputEvents)
 
     , testCase "mirrorStrategy - Refill reissuance" $ do
-        outputEvents <- interpretFrameworks (uncurry (mirrorStrategy 3) . split) (refillIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
+        outputEvents <- interpret (uncurry (mirrorStrategy 3) . split) (refillIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
         assertEqual "Output list does not match" refillIssuanceExpectedAs (fmap removeComments <$> outputEvents)
 
     , testCase "mirrorStrategy - Late cancellation reissuance" $ do
-        outputEvents <- interpretFrameworks (uncurry (mirrorStrategy 5) . split) (lateCancellationIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])  
+        outputEvents <- interpret (uncurry (mirrorStrategy 5) . split) (lateCancellationIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
         assertEqual "Output list does not match" lateCancellationIssuanceExpectedAs (fmap removeComments <$> outputEvents)
 
     ]
