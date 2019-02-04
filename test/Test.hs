@@ -13,11 +13,8 @@ import Control.Concurrent.STM
 
 import Strategy
 
-import Market.Types ( Coin(..)
-                    , BTC(..)
-                    , USD(..)
-                    , StrategyAdvice(..)
-                    )
+import Market.Types (Coin(..), StrategyAdvice(..))
+import Market.Coins (BTC(..), USD(..))
 
 import Interface
 
