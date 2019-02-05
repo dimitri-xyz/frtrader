@@ -1,6 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module TradingFramework where
+module Trading.Framework where
 
 import System.IO                (hPutStr, hPutStrLn, stderr)
 import Control.Exception.Base   (finally)
@@ -13,7 +13,7 @@ import Reactive.Banana
 import Reactive.Banana.Frameworks.Extended
 import qualified Data.ByteString.Char8 as BS
 
-import Combinator
+import Trading.Combinator
 import Market.Interface (Action(..), StrategyAdvice(..))
 
 --------------------------------------------------------------------------------

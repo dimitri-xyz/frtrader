@@ -2,27 +2,23 @@
 
 module Main where
 
+import Data.Proxy
 import Reactive.Banana
-import Reactive.Banana.Frameworks.Extended
-import Pipes.Concurrent
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Control.Concurrent.STM
-
-import Strategy
-
 import Market.Interface
+import Trading.Strategy
 
 import Market.Coins (BTC(..), USD(..))
 
 
-import qualified Data.HashMap.Strict as H
+import qualified Data.HashMap.Strict as H -- FIX ME! remove me soon!
 
 --------------------------------------------------------------------------------
 main :: IO ()
-main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol USD)
+main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol USD) -- FIX ME! Use Proxy
 --------------------------------------------------------------------------------
 
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree

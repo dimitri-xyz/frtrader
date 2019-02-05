@@ -1,6 +1,7 @@
 packages:
 - '.'
 - 'dep/market-interface'
+- '../../../RAZAO/trading-strategy'
 
 # because of dep/market-interface (and for the tests)
 - location:
