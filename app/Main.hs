@@ -32,29 +32,24 @@ showBook
     -> m (Event (Maybe (StrategyAdvice (Action p v))))
 showBook _ = return never
 
-coinbeneInitializer :: IO ()
-coinbeneInitializer = return ()
+---------------------------------------
+coinbeneInitializer :: IO (config, state)
+coinbeneInitializer = return (undefined, undefined)
 
-producer
-    :: forall p v q c config state. (Coin p, Coin v)
-    => config -> state -> (TradingEv p v q c -> IO ()) 
-    -> IO ()
+producer :: (Coin p, Coin v) => config -> state -> (TradingEv p v q c -> IO ()) -> IO ()
 producer config state handler = return ()
 
-executor 
-    :: forall p v config state action. (Coin p, Coin v) 
-    => config -> state -> Action p v
-    -> IO ()
+executor :: (Coin p, Coin v) => config -> state -> Action p v -> IO ()
 executor _config _state = print
 
 terminator :: config -> state -> IO ()
 terminator _ _ = hPutStrLn stderr "\nExecutor exiting!"
+---------------------------------------
 
 main :: IO ()
 main = do
 
-    coinbeneConfig <- coinbeneInitializer -- (should also return initial state)
-    let sharedState = undefined
+    (coinbeneConfig, sharedState) <- coinbeneInitializer
 
     putStrLn "--------------------------- Starting --------------------------------"
     putStrLn "Type <ENTER> to quit"
