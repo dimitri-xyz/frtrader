@@ -24,7 +24,6 @@ library
                      , pipes-concurrency
                      , reactive-banana >= 1.1.0.1
                      , market-interface
-                     , market-model
                      , razao-base
                      , bytestring
                      , unordered-containers

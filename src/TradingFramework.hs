@@ -13,10 +13,8 @@ import Reactive.Banana
 import Reactive.Banana.Frameworks.Extended
 import qualified Data.ByteString.Char8 as BS
 
-import Market.Types
-import Market.Util
-import Razao.Util
 import Combinator
+import Market.Interface (Action(..), StrategyAdvice(..))
 
 --------------------------------------------------------------------------------
 --                      FRAMEWORK HELPER FUNCTIONS
@@ -48,30 +46,3 @@ whileJustThenFinally_ p endAction loopAction = finally go endAction
             Just x  -> do
               loopAction x
               go
-
-splitEvents
-    :: Event (TradingE p v q c)
-    -> ( Event (OrderPlacement    p v)
-       , Event (OrderCancellation    )
-       , Event (OrderFill         p v)
-       , Event (QuoteBook         p v q c)
-       )
-splitEvents es =
-       ( toPlace  <$> filterE isPlace  es
-       , toCancel <$> filterE isCancel es
-       , toFill   <$> filterE isFill   es
-       , toBook   <$> filterE isBook   es
-       )
-  where
-    isPlace TP{}  = True
-    isPlace _     = False
-
-    isCancel TC{} = True
-    isCancel _    = False
-
-    isFill TF{}   = True
-    isFill _      = False
-
-    isBook TB{}   = True
-    isBook _      = False
-

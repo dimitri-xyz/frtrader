@@ -2,7 +2,7 @@ packages:
 - '.'
 - 'dep/market-interface'
 
-# because of dep/market-interface (otherwise, not used)
+# because of dep/market-interface (and for the tests)
 - location:
     git: https://github.com/dimitri-xyz/market-model
     commit: 6bc68484bacddf1f8bd176583ed2813e5459b7f1
