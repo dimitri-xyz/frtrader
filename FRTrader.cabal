@@ -18,12 +18,12 @@ library
   exposed-modules:     TradingFramework
                      , Combinator
                      , Strategy
-                     , Interface
 
   default-language:    Haskell2010
   build-depends:       base
                      , pipes-concurrency
                      , reactive-banana >= 1.1.0.1
+                     , market-interface
                      , market-model
                      , razao-base
                      , bytestring
@@ -45,6 +45,7 @@ test-suite test-FRTrader
                      , tasty
                      , tasty-hunit
                      , stm
+                     , market-interface
                      , market-model
                      , unordered-containers
 

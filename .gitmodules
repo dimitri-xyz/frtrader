@@ -1,3 +1,3 @@
-[submodule "dep/market-model"]
-	path = dep/market-model
-	url = https://github.com/dimitri-xyz/market-model
+[submodule "dep/market-interface"]
+	path = dep/market-interface
+	url = https://github.com/dimitri-xyz/market-interface

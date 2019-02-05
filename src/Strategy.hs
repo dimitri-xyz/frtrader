@@ -15,7 +15,7 @@ import           Reactive.Banana.Frameworks.Extended
 
 import           Combinator
 import           TradingFramework
-import           Interface
+import           Market.Interface
 import           Market.Types ( Coin(..), StrategyAdvice(..) )
 
 import qualified Data.HashMap.Strict as H

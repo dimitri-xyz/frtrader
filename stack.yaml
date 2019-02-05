@@ -1,6 +1,12 @@
 packages:
 - '.'
-- 'dep/market-model'
+- 'dep/market-interface'
+
+# because of dep/market-interface (otherwise, not used)
+- location:
+    git: https://github.com/dimitri-xyz/market-model
+    commit: 6bc68484bacddf1f8bd176583ed2813e5459b7f1
+  extra-dep: true
 
 - location:
     git: https://github.com/dimitri-xyz/razao-base
