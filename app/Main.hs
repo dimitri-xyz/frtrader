@@ -32,24 +32,29 @@ showBook
     -> m (Event (Maybe (StrategyAdvice (Action p v))))
 showBook _ = return never
 
+
+type Producer p v q c = Handler (TradingEv p v q c) -> IO ()
+type Executor p v     = Action p v -> IO ()
+type Terminator       = IO ()
+
 ---------------------------------------
-coinbeneInitializer :: IO (config, state)
-coinbeneInitializer = return (undefined, undefined)
+coinbeneInitializer :: forall p v q c. (Coin p, Coin v) => IO (Producer p v q c, Executor p v, Terminator)
+coinbeneInitializer = return (prodState undefined undefined, execState undefined undefined, termState undefined undefined)
 
-producer :: (Coin p, Coin v) => config -> state -> (TradingEv p v q c -> IO ()) -> IO ()
-producer config state handler = return ()
+prodState :: (Coin p, Coin v) => config -> state -> Producer p v q c
+prodState config state handler = return ()
 
-executor :: (Coin p, Coin v) => config -> state -> Action p v -> IO ()
-executor _config _state = print
+execState :: (Coin p, Coin v) => config -> state -> Executor p v
+execState _config _state = print
 
-terminator :: config -> state -> IO ()
-terminator _ _ = hPutStrLn stderr "\nExecutor exiting!"
+termState :: config -> state -> Terminator
+termState _ _ = hPutStrLn stderr "\nExecutor exiting!"
 ---------------------------------------
 
 main :: IO ()
 main = do
 
-    (coinbeneConfig, sharedState) <- coinbeneInitializer
+    (producer, executor, terminator) <- coinbeneInitializer
 
     putStrLn "--------------------------- Starting --------------------------------"
     putStrLn "Type <ENTER> to quit"
@@ -69,14 +74,14 @@ main = do
             (esAdvice :: Event (Maybe (StrategyAdvice (Action USD BTC))))
 
     -- start sensory threads
-    prodUSDTBTC <- async $ producer coinbeneConfig sharedState fireUSDTBTC
+    prodUSDTBTC <- async $ producer fireUSDTBTC
     link prodUSDTBTC
 
     -- start execution threads
     execUSDTBTC <- async $ runExecutor 
                     inputUSDTBTC 
-                    (executor   coinbeneConfig sharedState) 
-                    (terminator coinbeneConfig sharedState) 
+                    executor
+                    terminator
     link execUSDTBTC
 
     -- run until users presses <ENTER> key
