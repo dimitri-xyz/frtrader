@@ -6,25 +6,38 @@ The gigantic synchronous callback with multiple entry and exit points represente
 
 All the event network ever does is to place an Action in an unbounded length execution queue. So (unless there is a gigantic looping bug in the strategy) the event network *never blocks indefinitely*. Thus, by giving a connector its own execution/production threads, we ensure that a problem in a connector cannot deadlock the whole trader. It just deadlocks its own execution/production threads limiting the damage to a single market.
 
-Connectors to different markets may also have to keep internal state throughout program execution. I don't know what this internal state may be, but we are going to pre-establish a convention for how the trader will call the connectors and in what threads.
+Connectors to different markets may also have to keep internal state throughout program execution. The framework doesn't know and doesn't care what this internal state may be, but we are going to pre-establish a convention that allows connectors to establish such shared state.
 
 ### Startup
 
-Both the executor and producer will be given (as a parameter) a shared resource that is built at startup. It is up to them to control this resource and collaborate to free it at shutdown.
+This will be broken up in the future, to allow sharing or changing the same configuration between different connectors, but for now each connector should provide an Initializer. That is, an IO action that outputs 3 other IO actions.
 
-The framework will run a given initialization routine to create the shared resource.
-
-The shared resource is presented to both:
+For example:
 
 ```
-- executor -> config -> state -> Action -> m
-- producer -> config -> state ->
+coinbeneInitializer
+    :: forall p v. (Coin p, Coin v) 
+    -> Handler (TradingEv p v q c)   -- handler to call to fire events
+    => IO (Producer p v () (), Executor p v, Terminator)
 ```
 
-It is up to them to put it in TVAR/MVAR or whatever synchronization primitive they need.
+The types are defined as:
+
+```
+type Producer p v q c = IO ()
+type Executor p v     = Action p v -> IO ()
+type Terminator       = IO ()
+```
 
 ### Shutdown
 
-Currently, there is no way to inform the strategy that we are shutting down. In the future, we should consider adding a `ShutdownEv`.
+Currently, there is no way to inform the strategy that we are shutting down. In the future, we should consider adding a `ShutdownEv`. So, we currently can't solve the strategy shutdown problem. We can solve the Connector shutdown problem, though.
+
+If executor and producer use shared resources that are built at startup. It is up to them to control these resources and to collaborate to free them at shutdown.
+
+The way this semi-orderly connector shutdown is handled is that the corresponding `Terminator` action is run on the `Executor` thread and this thread is given 30 seconds before it is killed.
+
+
+
 
 

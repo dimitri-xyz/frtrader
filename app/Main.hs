@@ -26,35 +26,26 @@ This program uses multiple threads with an event network using our "push-pull" m
 3. Execution threads that process the Actions put in their respective action queues
 -}
 
-showBook 
-    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
-    => Event (TradingEv p v q c) 
-    -> m (Event (Maybe (StrategyAdvice (Action p v))))
-showBook _ = return never
-
-
-type Producer p v q c = Handler (TradingEv p v q c) -> IO ()
+type Producer p v q c = IO ()
 type Executor p v     = Action p v -> IO ()
 type Terminator       = IO ()
 
 ---------------------------------------
-coinbeneInitializer :: forall p v q c. (Coin p, Coin v) => IO (Producer p v q c, Executor p v, Terminator)
-coinbeneInitializer = return (prodState undefined undefined, execState undefined undefined, termState undefined undefined)
+coinbeneInitializer :: forall p v q c. (Coin p, Coin v) => Handler (TradingEv p v q c) -> IO (Producer p v q c, Executor p v, Terminator)
+coinbeneInitializer fireEvents = return (prodState undefined undefined fireEvents, execState undefined undefined fireEvents, termState undefined undefined fireEvents)
 
-prodState :: (Coin p, Coin v) => config -> state -> Producer p v q c
-prodState config state handler = return ()
+prodState :: (Coin p, Coin v) => config -> state -> Handler (TradingEv p v q c) -> Producer p v q c
+prodState _config _state _handler = return ()
 
-execState :: (Coin p, Coin v) => config -> state -> Executor p v
-execState _config _state = print
+execState :: (Coin p, Coin v) => config -> state -> Handler (TradingEv p v q c) -> Executor p v
+execState _config _state _handler = print
 
-termState :: config -> state -> Terminator
-termState _ _ = hPutStrLn stderr "\nExecutor exiting!"
+termState :: (Coin p, Coin v) => config -> state -> Handler (TradingEv p v q c) -> Terminator
+termState _config _state _handler = hPutStrLn stderr "\nExecutor exiting!"
 ---------------------------------------
 
 main :: IO ()
 main = do
-
-    (producer, executor, terminator) <- coinbeneInitializer
 
     putStrLn "--------------------------- Starting --------------------------------"
     putStrLn "Type <ENTER> to quit"
@@ -66,26 +57,28 @@ main = do
     -- execution FIFO queues
     (outputUSDTBTC, inputUSDTBTC, stopExecutorUSDTBTC) <- spawn' unbounded
 
+    -- Initialize Connectors
+    (producer, executor, terminator) <- coinbeneInitializer fireUSDTBTC
+
+    -- Build and start the strategy
     network <- compile $ do
         esUSDTBTC <- fromHandlerSet handlersUSDTBTC
         esAdvice  <- showBook esUSDTBTC
         reactimate $ 
-            fmap (maybe (pure ()) (logAndQueue outputUSDTBTC)) 
-            (esAdvice :: Event (Maybe (StrategyAdvice (Action USD BTC))))
+            fmap (logAndQueue outputUSDTBTC)
+            (esAdvice :: Event (StrategyAdvice (Action USD BTC)))
 
-    -- start sensory threads
-    prodUSDTBTC <- async $ producer fireUSDTBTC
-    link prodUSDTBTC
+    activate network
 
     -- start execution threads
-    execUSDTBTC <- async $ runExecutor 
-                    inputUSDTBTC 
-                    executor
-                    terminator
+    execUSDTBTC <- async $ runExecutor inputUSDTBTC executor terminator
     link execUSDTBTC
 
+    -- start producer threads
+    prodUSDTBTC <- async producer
+    link prodUSDTBTC
+
     -- run until users presses <ENTER> key
-    activate network
     keyboardWait
 
     -- Shutdown
@@ -97,6 +90,13 @@ main = do
 
 
 --------------------------------------------------------------------------------
-
 keyboardWait :: IO ()
 keyboardWait = getLine >> return () -- wait for <ENTER> to be pressed
+
+
+showBook 
+    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
+    => Event (TradingEv p v q c) 
+    -> m (Event (StrategyAdvice (Action p v)))
+showBook _ = return never
+
