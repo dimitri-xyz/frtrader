@@ -10,14 +10,14 @@ import Reactive.Banana.Frameworks.Extended
 
 import Pipes.Concurrent
 
-import System.IO                    (hPutStr, hPutStrLn, stderr) -- Remove me!
-
 import Trading.Framework
 import Trading.Strategy
 import Market.Interface
 
 import Reactive.Banana.Combinators (never) -- FIX ME! remove me!
 import Market.Coins (USD(..), BTC(..)) -- FIX ME! remove me!
+
+import Coinbene.Connector
 
 {-
 This program uses multiple threads with an event network using our "push-pull" model.
@@ -30,18 +30,6 @@ type Producer p v q c = IO ()
 type Executor p v     = Action p v -> IO ()
 type Terminator       = IO ()
 
----------------------------------------
-coinbeneInitializer :: forall p v q c. (Coin p, Coin v) => Handler (TradingEv p v q c) -> IO (Producer p v q c, Executor p v, Terminator)
-coinbeneInitializer fireEvents = return (prodState undefined undefined fireEvents, execState undefined undefined fireEvents, termState undefined undefined fireEvents)
-
-prodState :: (Coin p, Coin v) => config -> state -> Handler (TradingEv p v q c) -> Producer p v q c
-prodState _config _state _handler = return ()
-
-execState :: (Coin p, Coin v) => config -> state -> Handler (TradingEv p v q c) -> Executor p v
-execState _config _state _handler = print
-
-termState :: (Coin p, Coin v) => config -> state -> Handler (TradingEv p v q c) -> Terminator
-termState _config _state _handler = hPutStrLn stderr "\nExecutor exiting!"
 ---------------------------------------
 
 main :: IO ()

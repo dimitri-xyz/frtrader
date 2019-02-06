@@ -40,6 +40,7 @@ executable frt
                      , market-model
                      , market-interface
                      , trading-strategy
+                     , coinbene-connector
 
 test-suite test-FRTrader
   type:                exitcode-stdio-1.0
