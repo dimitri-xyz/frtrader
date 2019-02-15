@@ -41,6 +41,9 @@ executable frt
                      , market-interface
                      , trading-strategy
                      , coinbene-connector
+                     , http-client
+                     , http-client-tls
+                     , coinbene-api
 
 test-suite test-FRTrader
   type:                exitcode-stdio-1.0
