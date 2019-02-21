@@ -16,7 +16,7 @@ For example:
 
 ```
 coinbeneInitializer
-    :: forall p v. (Coin p, Coin v) 
+    :: forall p v. (Coin p, Coin v)
     -> Handler (TradingEv p v q c)   -- handler to call to fire events
     => IO (Producer p v () (), Executor p v, Terminator)
 ```

@@ -24,12 +24,12 @@ main = defaultMain $ tests (undefined :: Price BTC) (undefined :: Vol USD) -- FI
 tests :: forall p v q c. (Coin p, Coin v) => Price p -> Vol v -> TestTree
 tests _ _ = testGroup " Trading Strategy Tests"
     [ testCase "copyBookStrategy - exposure ok" $ do
-        outputPairs <- interpret (selfUpdateState (copyBookStrategy 5) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
+        outputPairs <- interpret (selfUpdateState (copyBookStrategy getAskTarget 5) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
         let outputActions = fmap fst <$> outputPairs
         assertEqual "Output list does not match" copyExpoOKAs (fmap removeReasoning <$> outputActions)
 
     , testCase "copyBookStrategy - restricted exposure" $ do
-        outputPairs <- interpret (selfUpdateState (copyBookStrategy 3) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
+        outputPairs <- interpret (selfUpdateState (copyBookStrategy getAskTarget 3) emptyState) (copyInEs :: [Maybe(TradingEv p v q c)])
         let outputActions = fmap fst <$> outputPairs
         assertEqual "Output list does not match" copyExpoRestrictedAs (fmap removeReasoning <$> outputActions)
 
@@ -50,15 +50,15 @@ tests _ _ = testGroup " Trading Strategy Tests"
             (fmap fst (expoOutInEs :: [(Maybe (Vol v), Maybe (TradingEv p v q c))]) ) (fmap realizedExposure <$> outputStates)
 
     , testCase "mirrorStrategy - Output/State" $ do
-        outputEvents <- interpret (uncurry (mirrorStrategy 5) . split) (binaryIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
+        outputEvents <- interpret (uncurry (mirrorStrategy getAskTarget 5) . split) (binaryIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
         assertEqual "Output list does not match" binaryExpectedAs (fmap removeComments <$> outputEvents)
 
     , testCase "mirrorStrategy - Refill reissuance" $ do
-        outputEvents <- interpret (uncurry (mirrorStrategy 3) . split) (refillIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
+        outputEvents <- interpret (uncurry (mirrorStrategy getAskTarget 3) . split) (refillIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
         assertEqual "Output list does not match" refillIssuanceExpectedAs (fmap removeComments <$> outputEvents)
 
     , testCase "mirrorStrategy - Late cancellation reissuance" $ do
-        outputEvents <- interpret (uncurry (mirrorStrategy 5) . split) (lateCancellationIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
+        outputEvents <- interpret (uncurry (mirrorStrategy getAskTarget 5) . split) (lateCancellationIssuanceIns :: [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))])
         assertEqual "Output list does not match" lateCancellationIssuanceExpectedAs (fmap removeComments <$> outputEvents)
 
     ]

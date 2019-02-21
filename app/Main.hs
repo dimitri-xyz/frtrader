@@ -13,7 +13,7 @@ import Reactive.Banana.Frameworks.Extended
 import Pipes.Concurrent
 
 import Trading.Framework
-import Trading.Strategy             (mirrorStrategy)
+import Trading.Strategy             (mirrorStrategy2)
 import Market.Interface
 
 import Reactive.Banana.Combinators  (never, filterE) -- FIX ME! remove me!
@@ -21,9 +21,6 @@ import Market.Coins                 (USD(..), BTC(..), BRL(..)) -- FIX ME! remov
 
 import Coinbene.Connector
 import Coinbene                     (Coinbene(..), API_ID(..), API_KEY(..)) -- FIX ME! Remove me.
-
-import Network.HTTP.Client          (newManager)
-import Network.HTTP.Client.TLS      (tlsManagerSettings)
 
 {-
 This program uses multiple threads with an event network using our "push-pull" model.
@@ -37,13 +34,21 @@ type Executor p v     = Action p v -> IO ()
 type Terminator       = IO ()
 
 ---------------------------------------
+safeHead :: [a] -> Maybe a
+safeHead []     = Nothing
+safeHead (a:as) = Just a
+
+getAskTarget = maybe (Ask, Price 0, Vol 0) (\q -> (side q, bucketPrice (price q), Vol 0.0011)) . safeHead . asks
+  where
+    bucketPrice (Price p) =
+        let p' = (*50) . (`div` 50) . ceiling $ p
+         in Price (realToFrac p')
+
 
 main :: IO ()
 main = do
 
-    manager <- newManager tlsManagerSettings
-    let coinbeneConfig = Coinbene manager
-
+    coinbeneConfig <- getCoinbeneConfig
 
     putStrLn "--------------------------- Starting --------------------------------"
     putStrLn "Type <ENTER> to quit"
@@ -68,14 +73,14 @@ main = do
         es1 <- fromHandlerSet handlers1
         es2 <- fromHandlerSet handlers2
 
-        esAdvice <- mirrorStrategy 0.0022 es1 es2
+        esAdvice <- mirrorStrategy2 3.85 3.80 getAskTarget 0.0022 es1 es2
 
         let esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
         let esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
 
         reactimate $
             fmap (logAndQueue output1)
-            (esAdv1 :: Event (StrategyAdvice (Action BRL BTC)))
+            (esAdv1 :: Event (StrategyAdvice (Action USD BTC)))
 
         reactimate $
             fmap (logAndQueue output2)
