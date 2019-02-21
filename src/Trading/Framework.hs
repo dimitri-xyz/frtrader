@@ -25,7 +25,7 @@ logAndQueue :: Output actions -> StrategyAdvice actions -> IO ()
 logAndQueue output (Advice (reasoning, actions)) = do
     -- reasons must explicitly include '\n' if desired.
     -- using bytestring to make output thread safe
-    BS.hPutStr stderr (BS.pack reasoning) 
+    BS.hPutStr stderr (BS.pack reasoning)
     sequence_ $ atomically . send output <$> actions
 
 runExecutor :: Input (Action p v) -> Handler (Action p v) -> IO () -> IO ()
@@ -35,7 +35,7 @@ runExecutor inputQueue executor finalizer =
 -- `finally` forces us to stick to the IO monad here when it really should be more general
 whileJustThenFinally_ :: IO (Maybe a) -> (a -> IO b) -> IO c -> IO ()
 whileJustThenFinally_ p loopAction endAction = finally go endAction
-  where 
+  where
     go = do
         x <- p
         case x of

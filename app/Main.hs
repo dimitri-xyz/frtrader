@@ -42,7 +42,7 @@ main :: IO ()
 main = do
 
     manager <- newManager tlsManagerSettings
-    let coinbeneConfig = Coinbene manager 
+    let coinbeneConfig = Coinbene manager
 
 
     putStrLn "--------------------------- Starting --------------------------------"
@@ -73,11 +73,11 @@ main = do
         let esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
         let esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
 
-        reactimate $ 
+        reactimate $
             fmap (logAndQueue output1)
             (esAdv1 :: Event (StrategyAdvice (Action BRL BTC)))
 
-        reactimate $ 
+        reactimate $
             fmap (logAndQueue output2)
             (esAdv2 :: Event (StrategyAdvice (Action BRL BTC)))
 
@@ -112,9 +112,9 @@ keyboardWait :: IO ()
 keyboardWait = getLine >> return () -- wait for <ENTER> to be pressed
 
 
-showBook 
+showBook
     :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
-    => Event (TradingEv p v q c) 
+    => Event (TradingEv p v q c)
     -> m (Event (StrategyAdvice (Action p v)))
 showBook _ = return never
 

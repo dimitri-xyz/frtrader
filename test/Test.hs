@@ -46,7 +46,7 @@ tests _ _ = testGroup " Trading Strategy Tests"
                             (selfUpdateState exposureControl' expoInitialState)
                             (fmap snd expoOutInEs :: [Maybe(TradingEv p v q c)])
         let outputStates = fmap snd <$> outputPairs
-        assertEqual "Final output state does not match" 
+        assertEqual "Final output state does not match"
             (fmap fst (expoOutInEs :: [(Maybe (Vol v), Maybe (TradingEv p v q c))]) ) (fmap realizedExposure <$> outputStates)
 
     , testCase "mirrorStrategy - Output/State" $ do
@@ -66,13 +66,13 @@ tests _ _ = testGroup " Trading Strategy Tests"
 removeReasoning :: StrategyAdvice a -> StrategyAdvice a
 removeReasoning (Advice (r, a)) = Advice ("", a)
 
-removeComments 
+removeComments
     :: ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))
     -> ( Maybe (StrategyAdvice (Action p v)), Maybe (StrategyAdvice (Action p v)))
 removeComments (a,b) = (fmap removeReasoning a, fmap removeReasoning b)
 
 --------------------------------------------------------------------------------
-qa1, qa2, qa3, qa4, qb1 :: forall p v q. (Coin p, Coin v) => Quote p v q 
+qa1, qa2, qa3, qa4, qb1 :: forall p v q. (Coin p, Coin v) => Quote p v q
 
 qa1 = Quote Ask (Price 1000) (Vol 1) undefined
 qa2 = Quote Ask (Price 2000) (Vol 1) undefined
@@ -90,7 +90,7 @@ bk3 = QuoteBook {bids = [qb1], asks = [qa3,qa2], counter = undefined}
 bk4 = QuoteBook {bids = [],    asks = [qa4,qa2], counter = undefined}
 
 copyInEs :: forall p v q c. (Coin p, Coin v) => [Maybe (TradingEv p v q c)]
-copyInEs = 
+copyInEs =
     [ Nothing
     , Just $ BookEv   bk1
     , Just $ BookEv   bk2
@@ -112,7 +112,7 @@ copyExpoOKAs =
     , Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1000) (Vol 2) (Just 1)])
     , Just $ Advice ("", ZipList [CancelLimit 0, CancelLimit 1])
     , Just $ mempty -- nothing happens, waits to see `CancelEv`
-    , Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1500) (Vol 1) (Just 2)]) 
+    , Just $ Advice ("", ZipList [PlaceLimit Ask (Price 1500) (Vol 1) (Just 2)])
     ]
 
 copyExpoRestrictedAs :: forall p v. (Coin p, Coin v) => [Maybe (StrategyAdvice (Action p v))]
@@ -133,7 +133,7 @@ copyExpoRestrictedAs =
 -- must be the case, that we created this order in the past (otherwise the event would not be dispatched to the strategy)
 -- Thus, we will ask for a refill. Is this the failure mode we want, though? "when in doubt, refill"
 refillInEs :: forall p v q c. (Coin p, Coin v) => [Maybe (TradingEv p v q c)]
-refillInEs = 
+refillInEs =
     [ Nothing
     , Just $ BookEv bk2
     , Just $ FillsEv [FillEv Ask (Price 1000) (Vol 1) (Just 0)]
@@ -163,9 +163,9 @@ refillExpectedAs =
     ]
 
 refillInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
-refillInitialState = 
+refillInitialState =
     ActionState
-        { openActionsMap = H.fromList 
+        { openActionsMap = H.fromList
             [ (0, OpenAction {oaSide = Ask, oaPrice = Price 1000, oaVolume = Vol 4, oaCancelled = False, oaExecdVol  = Vol 0})
             , (1, OpenAction {oaSide = Ask, oaPrice = Price 1500, oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1})
             , (8, OpenAction {oaSide = Ask, oaPrice = Price 3000, oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1})
@@ -179,7 +179,7 @@ refillInitialState =
 refillFinalState :: forall p v. (Coin p, Coin v) => Maybe (ActionState p v)
 refillFinalState = Just $
     ActionState
-        { openActionsMap = H.fromList 
+        { openActionsMap = H.fromList
             [ (1, OpenAction {oaSide = Ask, oaPrice = Price 1500, oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 3})
             , (8, OpenAction {oaSide = Ask, oaPrice = Price 3000, oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1})
             ]
@@ -191,7 +191,7 @@ refillFinalState = Just $
 expoInitialState :: forall p v. (Coin p, Coin v) => ActionState p v
 expoInitialState =
     ActionState
-        { openActionsMap = H.fromList 
+        { openActionsMap = H.fromList
             [ (1, (OpenAction {oaSide = Ask, oaPrice = Price 1500, oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 3}) )
             , (8, (OpenAction {oaSide = Ask, oaPrice = Price 3000, oaVolume = Vol 5, oaCancelled = False, oaExecdVol  = Vol 1}) )]
         , nextCOID = 10
@@ -200,7 +200,7 @@ expoInitialState =
 
 expoOutInEs :: forall p v q c. (Coin p, Coin v) => [(Maybe (Vol v), Maybe (TradingEv p v q c))]
 expoOutInEs =
-   -- pairs represent: (realized exposure volume just after event, event) 
+   -- pairs represent: (realized exposure volume just after event, event)
     [ (Nothing     , Just $ BookEv bk1)
     , (Just (Vol 6), Just $ FillsEv [])
     , (Nothing     , Just $ PlaceEv undefined)
@@ -220,7 +220,7 @@ expoOutInEs =
 -- The outer Maybe defines whether an event happened at this time or not, Nothing means time passed but nothing happened this instant.
 -- the inner maybes specify whether there is something to do at this time on the corresponding market.
 -- In other words, an output event has occurred and there should be something to do on at least one exchange.
--- the value: Just (Nothing, Nothing) is an "implementation glitch" and should never occur. 
+-- the value: Just (Nothing, Nothing) is an "implementation glitch" and should never occur.
 
 
 binaryIns :: forall p v q c. (Coin p, Coin v) => [Maybe (Either (TradingEv p v q c) (TradingEv p v q c))]
