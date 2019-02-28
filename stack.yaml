@@ -3,7 +3,7 @@ packages:
 - 'dep/market-interface'
 - 'dep/coinbene-api'
 - 'dep/coinbene-connector'
-- '../../../RAZAO/trading-strategy'
+- '../trading-strategy'
 
 # because of dep/market-interface (and for the tests)
 - location:
