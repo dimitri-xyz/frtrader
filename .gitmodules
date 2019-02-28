@@ -1,3 +1,9 @@
 [submodule "dep/market-interface"]
 	path = dep/market-interface
 	url = https://github.com/dimitri-xyz/market-interface
+[submodule "dep/coinbene-api"]
+	path = dep/coinbene-api
+	url = https://github.com/dimitri-xyz/coinbene-api
+[submodule "dep/coinbene-connector"]
+	path = dep/coinbene-connector
+	url = https://github.com/dimitri-xyz/coinbene-connector

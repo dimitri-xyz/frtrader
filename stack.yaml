@@ -1,9 +1,9 @@
 packages:
 - '.'
 - 'dep/market-interface'
+- 'dep/coinbene-api'
+- 'dep/coinbene-connector'
 - '../../../RAZAO/trading-strategy'
-- '../../../RAZAO/coinbene-connector'  # FIX ME!
-- '../../../RAZAO/coinbene-api'        # FIX ME!
 
 # because of dep/market-interface (and for the tests)
 - location:
