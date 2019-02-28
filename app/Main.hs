@@ -3,9 +3,10 @@
 module Main where
 
 import Data.Proxy
-import Data.Maybe                   (fromJust, isJust) -- FIX ME!
+import Data.Maybe                   (fromJust, isJust)
 import Control.Concurrent           (threadDelay)
 import Control.Concurrent.Async
+import System.Environment
 
 import Reactive.Banana
 import Reactive.Banana.Frameworks.Extended
@@ -13,14 +14,13 @@ import Reactive.Banana.Frameworks.Extended
 import Pipes.Concurrent
 
 import Trading.Framework
-import Trading.Strategy             (mirrorStrategy2)
+import Trading.Strategy             (mirrorStrategy2, AskSide(..), BidSide(..))
 import Market.Interface
-
 import Reactive.Banana.Combinators  (never, filterE) -- FIX ME! remove me!
 import Market.Coins                 (USD(..), BTC(..), BRL(..)) -- FIX ME! remove me!
 
 import Coinbene.Connector
-import Coinbene                     (Coinbene(..), API_ID(..), API_KEY(..)) -- FIX ME! Remove me.
+import Coinbene                     (Coinbene(..), API_ID(..), API_KEY(..), Verbosity(..)) -- FIX ME! Remove me.
 
 {-
 This program uses multiple threads with an event network using our "push-pull" model.
@@ -38,17 +38,43 @@ safeHead :: [a] -> Maybe a
 safeHead []     = Nothing
 safeHead (a:as) = Just a
 
-getAskTarget = maybe (Ask, Price 0, Vol 0) (\q -> (side q, bucketPrice (price q), Vol 0.0011)) . safeHead . asks
+-- returns what price needs to be offered to buy/sell `lim` volume from/to list.
+priceExtremum :: (Num v, Ord v) => v -> [(p,v)] -> Maybe p
+priceExtremum lim [] = Nothing -- not enough available
+priceExtremum lim ((p,v):xs)
+    | v >= lim  = Just p
+    | otherwise = priceExtremum (lim - v) xs
+
+getAskTarget2 = maybe (Price 0, Vol 0) (\p -> (bucketPrice p, Vol 0.1122)) . priceExtremum 0.2 . fmap toPair . asks
   where
+    toPair q = (price q, volume q)
+    convertPriceType (Price p) = Price (realToFrac p)
     bucketPrice (Price p) =
-        let p' = (*50) . (`div` 50) . ceiling $ p
+        let p' = (*20) . (`div` 20) . ceiling $ p
          in Price (realToFrac p')
 
+-----------
+getAskTarget = maybe (Price 0, Vol 0) (\q -> (bucketPrice (price q), Vol 0.0003)) . safeHead . asks
+  where
+    bucketPrice (Price p) =
+        let p' = {- (*50) . (`div` 50) .-} ceiling $ p
+         in Price (realToFrac p')
+
+getBidTarget = maybe (Price 0, Vol 0) (\q -> (bucketPrice (price q), Vol 0.0011)) . safeHead . bids
+  where
+    bucketPrice (Price p) =
+        let p' = {- (*50) . (`div` 50) . -} floor $ p
+         in Price (realToFrac p')
 
 main :: IO ()
 main = do
 
-    coinbeneConfig <- getCoinbeneConfig
+    args <- getArgs
+    print args
+    let xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 0) :: Double )
+        xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 1) :: Double )
+
+    coinbeneConfig <- getCoinbeneConfig Verbose
 
     putStrLn "--------------------------- Starting --------------------------------"
     putStrLn "Type <ENTER> to quit"
@@ -64,8 +90,8 @@ main = do
 
     -- Initialize Connectors
     let exchangeConfig = undefined
-    (producer1, executor1, terminator1) <- coinbeneInit 1000000 coinbeneConfig (Proxy :: Proxy IO) fire1
-    (producer2, executor2, terminator2) <- coinbeneInit 1000000 coinbeneConfig (Proxy :: Proxy IO) fire2
+    (producer1, executor1, terminator1) <- coinbeneInit 1000000 Verbose coinbeneConfig (Proxy :: Proxy IO) fire1
+    (producer2, executor2, terminator2) <- coinbeneInit 1000000 Verbose coinbeneConfig (Proxy :: Proxy IO) fire2
 
 
     -- Build and start the strategy
@@ -73,7 +99,7 @@ main = do
         es1 <- fromHandlerSet handlers1
         es2 <- fromHandlerSet handlers2
 
-        esAdvice <- mirrorStrategy2 3.85 3.80 getAskTarget 0.0022 es1 es2
+        esAdvice <- mirrorStrategy2 xSellRate xBuyRate 0.2244 getAskTarget2 AskSide es1 es2
 
         let esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
         let esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
