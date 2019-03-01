@@ -6,6 +6,9 @@ import Data.Proxy
 import Data.Maybe                   (fromJust, isJust)
 import Control.Concurrent           (threadDelay)
 import Control.Concurrent.Async
+import Control.Monad                (forever)
+import Control.Exception            (catch, IOException(..))
+import System.IO.Error              (isEOFError)
 import System.Environment
 
 import Reactive.Banana
@@ -127,7 +130,16 @@ main = do
     link prod2
 
     -- run until users presses <ENTER> key
-    keyboardWait
+    catch keyboardWait
+        (\e -> do
+                let err = show (e :: IOException)
+                if isEOFError e
+                    then do
+                        putStrLn ("Warning: isEOFError exception thrown on keyboard input. running forever. Ctrl-C to abort.")
+                        forever $ threadDelay (24 * 60 * 60 * 1000000)
+                    else
+                        putStrLn ("Error: Aborting execution. Unknown exception thrown on keyboard input:" <> err )
+        )
 
     -- Shutdown
     -- 30 seconds timeout for executors to finish their job before terminating
