@@ -69,13 +69,39 @@ getBidTarget = maybe (Price 0, Vol 0) (\q -> (bucketPrice (price q), Vol 0.0011)
         let p' = {- (*50) . (`div` 50) . -} floor $ p
          in Price (realToFrac p')
 
+-----------
+defineAskTarget :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> (Price p, Vol v)
+defineAskTarget slipVol placeVol = maybe (Price 0, Vol 0) (\p -> (bucketPrice p, placeVol)) . priceExtremum slipVol . fmap toPair . asks
+  where
+    toPair q = (price q, volume q)
+    convertPriceType (Price p) = Price (realToFrac p)
+    bucketPrice (Price p) =
+        let p' = (*20) . (`div` 20) . ceiling $ p
+         in Price (realToFrac p')
+
+
+
 main :: IO ()
 main = do
 
     args <- getArgs
-    print args
-    let xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 0) :: Double )
-        xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 1) :: Double )
+
+    if length args /= 5 then
+        error "Usage: frt maxExposure slipVol placeVol USDT-SellPrice USDT-BuyPrice"
+    else
+        return ()
+
+    let maxExposure :: Vol BTC = Vol   $ realToFrac ((read $ args !! 0) :: Double )
+        slipVol     :: Vol BTC = Vol   $ realToFrac ((read $ args !! 1) :: Double )
+        placeVol    :: Vol BTC = Vol   $ realToFrac ((read $ args !! 2) :: Double )
+        xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 3) :: Double )
+        xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 4) :: Double )
+
+    putStrLn $  "Max exposure:"   <> show maxExposure
+             <> "\nSlippage vol:" <> show slipVol
+             <> "\ntarget vol:"   <> show placeVol
+             <> "\nUSDT sell rate:" <> show xSellRate
+             <> "\nUSDT buy rate:"  <> show xBuyRate
 
     coinbeneConfig <- getCoinbeneConfig Verbose
 
@@ -102,7 +128,7 @@ main = do
         es1 <- fromHandlerSet handlers1
         es2 <- fromHandlerSet handlers2
 
-        esAdvice <- mirrorStrategy2 xSellRate xBuyRate 0.2244 getAskTarget2 AskSide es1 es2
+        esAdvice <- mirrorStrategy2 xSellRate xBuyRate maxExposure (defineAskTarget slipVol placeVol) AskSide es1 es2
 
         let esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
         let esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
