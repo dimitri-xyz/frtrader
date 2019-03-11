@@ -48,37 +48,18 @@ priceExtremum lim ((p,v):xs)
     | v >= lim  = Just p
     | otherwise = priceExtremum (lim - v) xs
 
-getAskTarget2 = maybe (Price 0, Vol 0) (\p -> (bucketPrice p, Vol 0.1122)) . priceExtremum 0.2 . fmap toPair . asks
+-----------
+defineTarget
+    :: (Coin p, Coin v)
+    => (QuoteBook p v q c -> [Quote p v q]) -> Vol v -> Vol v
+    -> QuoteBook p v q c -> (Price p, Vol v)
+defineTarget toQuotes slipVol placeVol = maybe (Price 0, Vol 0) (\p -> (bucketPrice p, placeVol)) . priceExtremum slipVol . fmap toPair . toQuotes
   where
     toPair q = (price q, volume q)
     convertPriceType (Price p) = Price (realToFrac p)
     bucketPrice (Price p) =
-        let p' = (*20) . (`div` 20) . ceiling $ p
+        let p' = (*20) . (`div` 20) . round $ p
          in Price (realToFrac p')
-
------------
-getAskTarget = maybe (Price 0, Vol 0) (\q -> (bucketPrice (price q), Vol 0.0003)) . safeHead . asks
-  where
-    bucketPrice (Price p) =
-        let p' = {- (*50) . (`div` 50) .-} ceiling $ p
-         in Price (realToFrac p')
-
-getBidTarget = maybe (Price 0, Vol 0) (\q -> (bucketPrice (price q), Vol 0.0011)) . safeHead . bids
-  where
-    bucketPrice (Price p) =
-        let p' = {- (*50) . (`div` 50) . -} floor $ p
-         in Price (realToFrac p')
-
------------
-defineAskTarget :: (Coin p, Coin v) => Vol v -> Vol v -> QuoteBook p v q c -> (Price p, Vol v)
-defineAskTarget slipVol placeVol = maybe (Price 0, Vol 0) (\p -> (bucketPrice p, placeVol)) . priceExtremum slipVol . fmap toPair . asks
-  where
-    toPair q = (price q, volume q)
-    convertPriceType (Price p) = Price (realToFrac p)
-    bucketPrice (Price p) =
-        let p' = (*20) . (`div` 20) . ceiling $ p
-         in Price (realToFrac p')
-
 
 
 main :: IO ()
@@ -86,22 +67,26 @@ main = do
 
     args <- getArgs
 
-    if length args /= 5 then
-        error "Usage: frt maxExposure slipVol placeVol USDT-SellPrice USDT-BuyPrice"
+    if length args /= 7 then
+        error "Usage: frt pollRate mirrorSide maxExposure slipVol placeVol USDT-SellPrice USDT-BuyPrice"
     else
         return ()
 
-    let maxExposure :: Vol BTC = Vol   $ realToFrac ((read $ args !! 0) :: Double )
-        slipVol     :: Vol BTC = Vol   $ realToFrac ((read $ args !! 1) :: Double )
-        placeVol    :: Vol BTC = Vol   $ realToFrac ((read $ args !! 2) :: Double )
-        xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 3) :: Double )
-        xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 4) :: Double )
+    let pollingInterval :: Double =                 ((read $ args !! 0) :: Double )
+        mirrorSide      :: String =                          args !! 1
+        maxExposure :: Vol BTC = Vol   $ realToFrac ((read $ args !! 2) :: Double )
+        slipVol     :: Vol BTC = Vol   $ realToFrac ((read $ args !! 3) :: Double )
+        placeVol    :: Vol BTC = Vol   $ realToFrac ((read $ args !! 4) :: Double )
+        xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 5) :: Double )
+        xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 6) :: Double )
 
-    putStrLn $  "Max exposure:"   <> show maxExposure
-             <> "\nSlippage vol:" <> show slipVol
-             <> "\ntarget vol:"   <> show placeVol
-             <> "\nUSDT sell rate:" <> show xSellRate
-             <> "\nUSDT buy rate:"  <> show xBuyRate
+    putStrLn $  "Poll interval:  " <> show pollingInterval
+             <> "\nMirror side:  " <> mirrorSide
+             <> "\nMax exposure: " <> show maxExposure
+             <> "\nSlippage vol: " <> show slipVol
+             <> "\ntarget vol:   " <> show placeVol
+             <> "\nUSDT sell rate: " <> show xSellRate
+             <> "\nUSDT  buy rate: " <> show xBuyRate
 
     coinbeneConfig <- getCoinbeneConfig Verbose
 
@@ -119,8 +104,8 @@ main = do
 
     -- Initialize Connectors
     let exchangeConfig = undefined
-    (producer1, executor1, terminator1) <- coinbeneInit 1000000 Verbose coinbeneConfig (Proxy :: Proxy IO) fire1
-    (producer2, executor2, terminator2) <- coinbeneInit 1000000 Verbose coinbeneConfig (Proxy :: Proxy IO) fire2
+    (producer1, executor1, terminator1) <- coinbeneInit (truncate $ pollingInterval * 1000000) Verbose coinbeneConfig (Proxy :: Proxy IO) fire1
+    (producer2, executor2, terminator2) <- coinbeneInit (truncate $ pollingInterval * 1000000) Verbose coinbeneConfig (Proxy :: Proxy IO) fire2
 
 
     -- Build and start the strategy
@@ -128,7 +113,10 @@ main = do
         es1 <- fromHandlerSet handlers1
         es2 <- fromHandlerSet handlers2
 
-        esAdvice <- mirrorStrategy2 xSellRate xBuyRate maxExposure (defineAskTarget slipVol placeVol) AskSide es1 es2
+        esAdvice <- case mirrorSide of
+                "ASKS" -> mirrorStrategy2 xSellRate xBuyRate maxExposure (defineTarget asks slipVol placeVol) AskSide es1 es2
+                "BIDS" -> mirrorStrategy2 xSellRate xBuyRate maxExposure (defineTarget bids slipVol placeVol) BidSide es1 es2
+                _      -> error $ "Argument 'mirrorSide' must be either ASKS or BIDS (in all caps)."
 
         let esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
         let esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
