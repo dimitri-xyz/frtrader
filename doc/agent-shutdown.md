@@ -2,26 +2,26 @@
 
 It is clear we need to signal a shutdown to the strategy. The strategy is currently not aware of the need to shut down and, thus, cannot respond to such a request. This is new functionality that we need to implement.
 
-Before tackling this new functionality, let us focus on whether we also need to signal a shutdown to the connectors through the Strategy/Market interface.
+Before tackling this new functionality, let us focus on whether we also need to signal a shutdown to the Connectors through the Strategy/Market interface.
 
 #### Strategy/Market Interface
 
-A strategy does not need to signal to a connector that it will no longer issue any actions, because it can just do that (not issue any actions), no signaling is necessary (this would shut down the executor).
+A strategy does not need to signal to a connector that it will no longer issue any actions, because it can just do that (not issue any actions). No signaling is necessary, although knowing this in advance would allow the connector to shut down the executor.
 
-On the other hand, if the strategy not only will no longer perform any actions, but also no longer needs any more event notifications, then (we can shut down both executor and producer and) the connector should be notified, so that it can just shut itself down and free up resources.
+On the other hand, if the strategy not only will no longer perform any actions, but also no longer needs any more event notifications, then we can shut down the whole connector (both executor and producer) and the connector should be notified, so that it can just shut itself down and free up resources.
 
 There are two ways we could notify the connector:
 
 1. Through a new notification in the `Action` interface
-2. By stopping the executor (current implementation)
+2. By stopping the executor (current implementation) and making it stop the producer also.
 
-Signalling through the `Action` interface would duplicate current functionality, but make this directly available to the strategy. This would enable a strategy to dynamically stop a connectors. However, we don't have a mechanism to dynamically *start* a connector, so this seems like unnecessary functionality. For now, the set of connectors for a strategy is statically determined, we have no plans to change that. So, this seems unnecessarily complicated.
+Signalling through the `Action` interface would duplicate current functionality, but make this directly available to the strategy. This would enable a strategy to dynamically stop connectors. However, we don't have a mechanism to dynamically *start* a connector, so this seems like unnecessary functionality. For now, the set of connectors for a strategy is statically determined, we have no plans to change that. So, this seems unnecessarily complicated.
 
 We choose to use (2), so we just need to make one update: *The `stopExecutor` functionality used today, should stop the whole connector, both producer and executor, not just the executor.*
 
 #### Pre/Post conditions for connector shutdown signalling
 
-Any shutdown signalling should be sent to a market *after* all the necessary event notifications from that market have been received.
+Any connector shutdown signalling should be sent to a market *after* all the necessary event notifications from that market have been received.
 
 Furthermore, the shut down signal to a connector will always succeed, i.e. the connector will never fail to gracefully shut down after it has placed all its orders.
 
@@ -65,6 +65,6 @@ Another way to look at this extra "control" interface, is that it receives auxil
 
 #### Other Errors
 
-Also, what happens if a connectors gets an error such as the 502 Bad gateways I have been getting? Can this also be treated by this control mechanism. Well, I don't think I have to decide this now.
+Also, what happens if a connectors gets an error such as the 502 Bad gateways I have been getting? Can this also be treated by this control mechanism. Thankfully, I think this decision can be safely postponed.
 
 
