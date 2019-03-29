@@ -17,7 +17,7 @@ import Reactive.Banana.Frameworks.Extended
 import Pipes.Concurrent
 
 import Trading.Framework
-import Trading.Strategy             (mirrorStrategy2, AskSide(..), BidSide(..))
+import Trading.Strategy             (mirrorStrategy2, defineTarget, AskSide(..), BidSide(..))
 import Market.Interface
 import Reactive.Banana.Combinators  (never, filterE) -- FIX ME! remove me!
 import Market.Coins                 (USD(..), BTC(..), BRL(..)) -- FIX ME! remove me!
@@ -35,31 +35,6 @@ This program uses multiple threads with an event network using our "push-pull" m
 type Producer p v q c = IO ()
 type Executor p v     = Action p v -> IO ()
 type Terminator       = IO ()
-
----------------------------------------
-safeHead :: [a] -> Maybe a
-safeHead []     = Nothing
-safeHead (a:as) = Just a
-
--- returns what price needs to be offered to buy/sell `lim` volume from/to list.
-priceExtremum :: (Num v, Ord v) => v -> [(p,v)] -> Maybe p
-priceExtremum lim [] = Nothing -- not enough available
-priceExtremum lim ((p,v):xs)
-    | v >= lim  = Just p
-    | otherwise = priceExtremum (lim - v) xs
-
------------
-defineTarget
-    :: (Coin p, Coin v)
-    => (QuoteBook p v q c -> [Quote p v q]) -> Vol v -> Vol v
-    -> QuoteBook p v q c -> (Price p, Vol v)
-defineTarget toQuotes slipVol placeVol = maybe (Price 0, Vol 0) (\p -> (bucketPrice p, placeVol)) . priceExtremum slipVol . fmap toPair . toQuotes
-  where
-    toPair q = (price q, volume q)
-    convertPriceType (Price p) = Price (realToFrac p)
-    bucketPrice (Price p) =
-        let p' = (*20) . (`div` 20) . round $ p
-         in Price (realToFrac p')
 
 
 main :: IO ()
