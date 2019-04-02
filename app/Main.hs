@@ -10,6 +10,7 @@ import Control.Monad                (forever)
 import Control.Exception            (catch, IOException(..))
 import System.IO.Error              (isEOFError)
 import System.Environment
+import System.Exit
 
 import Reactive.Banana
 import Reactive.Banana.Frameworks.Extended
@@ -17,7 +18,7 @@ import Reactive.Banana.Frameworks.Extended
 import Pipes.Concurrent
 
 import Trading.Framework
-import Trading.Strategy             (mirrorStrategy2, defineTarget, AskSide(..), BidSide(..))
+import Trading.Strategy             (mirrorStrategy2, defineTarget, AskSide(..), BidSide(..), mirrorStrategy3)
 import Market.Interface
 import Reactive.Banana.Combinators  (never, filterE) -- FIX ME! remove me!
 import Market.Coins                 (USD(..), BTC(..), BRL(..)) -- FIX ME! remove me!
@@ -70,46 +71,56 @@ main = do
     putStrLn "---------------------------------------------------------------------"
 
     -- event dispatch handlers
+    (ctrlHandlers, fireControl) <- newHandlerSet
     (handlers1, fire1) <- newHandlerSet
     (handlers2, fire2) <- newHandlerSet
 
     -- execution FIFO queues
-    (output1, input1, stopExecutor1) <- spawn' unbounded
-    (output2, input2, stopExecutor2) <- spawn' unbounded
+    (ctrlOutput, ctrlInput, stopCtrlExecutor) <- spawn' unbounded
+    (output1   , input1   , stopExecutor1)    <- spawn' unbounded
+    (output2   , input2   , stopExecutor2)    <- spawn' unbounded
 
     -- Initialize Connectors
-    let exchangeConfig = undefined
     (producer1, executor1, terminator1) <- coinbeneInit (truncate $ pollingInterval * 1000000) Verbose coinbeneConfig (Proxy :: Proxy IO) fire1
     (producer2, executor2, terminator2) <- coinbeneInit (truncate $ pollingInterval * 1000000) Verbose coinbeneConfig (Proxy :: Proxy IO) fire2
 
 
     -- Build and start the strategy
     network <- compile $ do
-        es1 <- fromHandlerSet handlers1
-        es2 <- fromHandlerSet handlers2
+        ctrlEs <- fromHandlerSet ctrlHandlers
+        es1    <- fromHandlerSet handlers1
+        es2    <- fromHandlerSet handlers2
 
-        esAdvice <- case mirrorSide of
-                "ASKS" -> mirrorStrategy2 xSellRate xBuyRate maxExposure (defineTarget asks slipVol placeVol) AskSide es1 es2
-                "BIDS" -> mirrorStrategy2 xSellRate xBuyRate maxExposure (defineTarget bids slipVol placeVol) BidSide es1 es2
+        pair <- case mirrorSide of
+                "ASKS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget asks slipVol placeVol) AskSide ctrlEs es1 es2
+                "BIDS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget bids slipVol placeVol) BidSide ctrlEs es1 es2
                 _      -> error $ "Argument 'mirrorSide' must be either ASKS or BIDS (in all caps)."
 
-        let esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
-        let esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
+        let controlAs = fst pair
+            esAdvice  = snd pair
+            esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
+            esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
 
         reactimate $
-            fmap (logAndQueue output1)
+            fmap (logAndQueueControl ctrlOutput)
+            (controlAs :: Event (ControlAction))
+
+        reactimate $
+            fmap (logAndQueueAdvice output1)
             (esAdv1 :: Event (StrategyAdvice (Action USD BTC)))
 
         reactimate $
-            fmap (logAndQueue output2)
+            fmap (logAndQueueAdvice output2)
             (esAdv2 :: Event (StrategyAdvice (Action BRL BTC)))
 
     activate network
 
     -- start execution threads
-    exec1 <- async $ runExecutor input1 executor1 terminator1
+    ctrlExecThread <- async $ runExecutor ctrlInput (ctrlExecutor stopCtrlExecutor) ctrlFinalizer
+    link ctrlExecThread
+    exec1          <- async $ runExecutor input1     executor1 terminator1
     link exec1
-    exec2 <- async $ runExecutor input2 executor2 terminator2
+    exec2          <- async $ runExecutor input2     executor2 terminator2
     link exec2
 
     -- start producer threads
@@ -118,35 +129,48 @@ main = do
     prod2 <- async producer2
     link prod2
 
-    -- run until users presses <ENTER> key
-    catch keyboardWait
-        (\e -> do
-                let err = show (e :: IOException)
-                if isEOFError e
-                    then do
-                        putStrLn ("Warning: isEOFError exception thrown on keyboard input. running forever. Ctrl-C to abort.")
-                        forever $ threadDelay (24 * 60 * 60 * 1000000)
-                    else
-                        putStrLn ("Error: Aborting execution. Unknown exception thrown on keyboard input:" <> err )
-        )
+
+    -- shutdown thread
+    timeouter <- async $ do
+            shutdownTrigger
+            logger "Shutdown initiated. Shutting down strategy.\n"
+            fireControl ShutdownEv    -- give strategy early warning
+            threadDelay (20 * 1000000)
+            return () -- we only get here before being "canceled" on a Strategy timeout! Bad, bad!
+    link timeouter
 
     -- Shutdown
-    -- 30 seconds timeout for executors to finish their job before terminating
+    eExitCode <- waitEither
+        timeouter
+        ctrlExecThread -- this thread terminates on a `ShutdownDone` ControlAction
+
+    -- The strategy either already shutdown or should killed at this point
+    -- give 30 seconds (if needed) for executors to finish their job before terminating
     atomically stopExecutor1
     atomically stopExecutor2
     race_
         (threadDelay (30 * 1000000))
         (mapConcurrently_ wait [exec1, exec2])
 
+    case eExitCode of
+        Left  _ -> exitWith (ExitFailure 55)
+        Right x -> do -- TO DO!
+            print x
+            exitFailure
 
 --------------------------------------------------------------------------------
 keyboardWait :: IO ()
 keyboardWait = getLine >> return () -- wait for <ENTER> to be pressed
 
-
-showBook
-    :: forall m p v q c. (MonadMoment m, Coin p, Coin v)
-    => Event (TradingEv p v q c)
-    -> m (Event (StrategyAdvice (Action p v)))
-showBook _ = return never
-
+-- this runs until users presses <ENTER> key or (if we have no stdin, as inside a cron job) a timeout interval
+shutdownTrigger :: IO ()
+shutdownTrigger = catch keyboardWait
+    (\e -> do
+        let err = show (e :: IOException)
+        if isEOFError e
+            then do
+                putStrLn ("Warning: isEOFError exception thrown on keyboard input. Running for 1 hour 55 mins. Ctrl-C to abort.")
+                threadDelay (115 * 60 * 1000000)
+            else
+                putStrLn ("Error: Aborting execution. Unknown exception thrown on keyboard input:" <> err )
+    )

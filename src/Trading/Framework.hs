@@ -13,22 +13,23 @@ import Reactive.Banana
 import Reactive.Banana.Frameworks.Extended
 import qualified Data.ByteString.Char8 as BS
 
-import Market.Interface (Action(..), StrategyAdvice(..))
+import Market.Interface (Action(..), StrategyAdvice(..), ControlAction(..))
 
+----------------------------------------
+ctrlExecutor :: STM () -> Handler ControlAction
+ctrlExecutor _    (Error code msg)    = logger ("Strategy ERROR - code:" <> show code <> " - " <> msg <> "\n" )
+ctrlExecutor stop (ShutdownDone code) = logger "ShutdownDone received.\n" >> atomically stop
+
+ctrlFinalizer :: IO ()
+ctrlFinalizer = error "ERROR: Control Executor exiting! This should never happen!\n"
 --------------------------------------------------------------------------------
 --                      FRAMEWORK HELPER FUNCTIONS
 --------------------------------------------------------------------------------
-showReasoning :: StrategyAdvice action -> IO ()
-showReasoning (Advice (reasoning, _)) = putStrLn reasoning
 
-logAndQueue :: Output actions -> StrategyAdvice actions -> IO ()
-logAndQueue output (Advice (reasoning, actions)) = do
-    -- reasons must explicitly include '\n' if desired.
-    -- using bytestring to make output thread safe
-    BS.hPutStr stderr (BS.pack reasoning)
-    sequence_ $ atomically . send output <$> actions
+showReason :: StrategyAdvice action -> String
+showReason (Advice (reasoning, _)) = reasoning
 
-runExecutor :: Input (Action p v) -> Handler (Action p v) -> IO () -> IO ()
+runExecutor :: Input a -> Handler a -> IO () -> IO ()
 runExecutor inputQueue executor finalizer =
     whileJustThenFinally_ (atomically $ recv inputQueue) executor finalizer
 
@@ -43,3 +44,25 @@ whileJustThenFinally_ p loopAction endAction = finally go endAction
             Just x  -> do
                 loopAction x
                 go
+
+queue :: Output a -> a -> IO Bool
+queue output action = atomically (send output action)
+
+queueMany :: Traversable t => Output a -> t a -> IO ()
+queueMany output actions = mapM_ (queue output) actions
+
+-- explicitly include '\n' if desired.
+-- using bytestring to make output thread safe
+logger :: String -> IO ()
+logger message = BS.hPutStr stderr (BS.pack message)
+
+logAndQueueAdvice :: Output actions -> StrategyAdvice actions -> IO ()
+logAndQueueAdvice output (Advice (reasoning, actions)) = do
+    logger reasoning
+    queueMany output actions
+
+logAndQueueControl :: Show action => Output action -> action -> IO ()
+logAndQueueControl output ctrAction = do
+    logger (show ctrAction)
+    queue output ctrAction
+    return ()
