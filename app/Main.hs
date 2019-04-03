@@ -4,6 +4,8 @@ module Main where
 
 import Data.Proxy
 import Data.Maybe                   (fromJust, isJust)
+import Data.Tuple.Extra             (fst3, snd3, thd3)
+
 import Control.Concurrent           (threadDelay)
 import Control.Concurrent.Async
 import Control.Monad                (forever)
@@ -91,19 +93,21 @@ main = do
         es1    <- fromHandlerSet handlers1
         es2    <- fromHandlerSet handlers2
 
-        pair <- case mirrorSide of
+        triple <- case mirrorSide of
                 "ASKS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget asks slipVol placeVol) AskSide ctrlEs es1 es2
                 "BIDS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget bids slipVol placeVol) BidSide ctrlEs es1 es2
                 _      -> error $ "Argument 'mirrorSide' must be either ASKS or BIDS (in all caps)."
 
-        let controlAs = fst pair
-            esAdvice  = snd pair
-            esAdv1 = fromJust <$> filterE isJust (fst <$> esAdvice)
-            esAdv2 = fromJust <$> filterE isJust (snd <$> esAdvice)
+        let ctrlAs' = fst3 <$> triple
+            esAdv1' = snd3 <$> triple
+            esAdv2' = thd3 <$> triple
+            ctrlAs = fromJust <$> filterE isJust ctrlAs'
+            esAdv1 = fromJust <$> filterE isJust esAdv1'
+            esAdv2 = fromJust <$> filterE isJust esAdv2'
 
         reactimate $
             fmap (logAndQueueControl ctrlOutput)
-            (controlAs :: Event (ControlAction))
+            (ctrlAs :: Event (ControlAction))
 
         reactimate $
             fmap (logAndQueueAdvice output1)

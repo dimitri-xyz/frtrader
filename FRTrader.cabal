@@ -43,6 +43,7 @@ executable frt
                      , coinbene-connector
                      , coinbene-api
                      , bytestring
+                     , extra
 
 test-suite test-FRTrader
   type:                exitcode-stdio-1.0
