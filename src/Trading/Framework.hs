@@ -17,11 +17,11 @@ import Market.Interface (Action(..), StrategyAdvice(..), ControlAction(..))
 
 ----------------------------------------
 ctrlExecutor :: STM () -> Handler ControlAction
-ctrlExecutor _    (Error code msg)    = logger ("Strategy ERROR - code:" <> show code <> " - " <> msg <> "\n" )
+ctrlExecutor _    (Error code msg)    = return () -- Do nothing. Just logging these for now.
 ctrlExecutor stop (ShutdownDone code) = logger "ShutdownDone received.\n" >> atomically stop
 
 ctrlFinalizer :: IO ()
-ctrlFinalizer = error "ERROR: Control Executor exiting! This should never happen!\n"
+ctrlFinalizer = logger "Control Executor Exiting! This should only happen after receiving `ShutdownDone` from strategy.\n"
 --------------------------------------------------------------------------------
 --                      FRAMEWORK HELPER FUNCTIONS
 --------------------------------------------------------------------------------
@@ -63,6 +63,6 @@ logAndQueueAdvice output (Advice (reasoning, actions)) = do
 
 logAndQueueControl :: Show action => Output action -> action -> IO ()
 logAndQueueControl output ctrAction = do
-    logger (show ctrAction)
+    logger $ "CONTROL ACTION: " <> show ctrAction <> "\n"
     queue output ctrAction
     return ()

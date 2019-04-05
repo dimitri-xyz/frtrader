@@ -139,7 +139,7 @@ main = do
             shutdownTrigger
             logger "Shutdown initiated. Shutting down strategy.\n"
             fireControl ShutdownEv    -- give strategy early warning
-            threadDelay (20 * 1000000)
+            threadDelay (120 * 1000000)
             return () -- we only get here before being "canceled" on a Strategy timeout! Bad, bad!
     link timeouter
 
@@ -157,10 +157,11 @@ main = do
         (mapConcurrently_ wait [exec1, exec2])
 
     case eExitCode of
-        Left  _ -> exitWith (ExitFailure 55)
-        Right x -> do -- TO DO!
-            print x
-            exitFailure
+        Left  _ -> exitWith (ExitFailure 89) -- let's just say 89 is strategy timeout
+        Right _ -> do
+            -- exceptions on ctrlExecThread are propagated to this one and we would never get here
+            putStrLn "success!"
+            exitSuccess
 
 --------------------------------------------------------------------------------
 keyboardWait :: IO ()
