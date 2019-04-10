@@ -161,7 +161,9 @@ main = do
         Right _ -> do
             -- exceptions on ctrlExecThread are propagated to this one and we would never get here
             putStrLn "success!"
-            exitSuccess
+            -- FIX ME! This should be exitSuccess, but I am affraid of inadvertent use of
+            -- error code zero during error treatment. sticking to this for now.
+            exitWith (ExitFailure 55)
 
 --------------------------------------------------------------------------------
 keyboardWait :: IO ()
