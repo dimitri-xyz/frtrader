@@ -1,4 +1,13 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
+#ifdef ETHEREUM
+#define MACRO_CURRENCY ETH
+#define MACRO_BUCKETSIZE 1
+#else
+#define MACRO_CURRENCY BTC
+#define MACRO_BUCKETSIZE 20
+#endif
 
 module Main where
 
@@ -23,7 +32,7 @@ import Trading.Framework
 import Trading.Strategy             (mirrorStrategy2, defineTarget, AskSide(..), BidSide(..), mirrorStrategy3)
 import Market.Interface
 import Reactive.Banana.Combinators  (never, filterE) -- FIX ME! remove me!
-import Market.Coins                 (USD(..), BTC(..), BRL(..)) -- FIX ME! remove me!
+import Market.Coins
 
 import Coinbene.Connector
 import Coinbene                     (Coinbene(..), API_ID(..), API_KEY(..), Verbosity(..)) -- FIX ME! Remove me.
@@ -52,9 +61,9 @@ main = do
 
     let pollingInterval :: Double =                 ((read $ args !! 0) :: Double )
         mirrorSide      :: String =                          args !! 1
-        maxExposure :: Vol BTC = Vol   $ realToFrac ((read $ args !! 2) :: Double )
-        slipVol     :: Vol BTC = Vol   $ realToFrac ((read $ args !! 3) :: Double )
-        placeVol    :: Vol BTC = Vol   $ realToFrac ((read $ args !! 4) :: Double )
+        maxExposure :: Vol MACRO_CURRENCY = Vol   $ realToFrac ((read $ args !! 2) :: Double )
+        slipVol     :: Vol MACRO_CURRENCY = Vol   $ realToFrac ((read $ args !! 3) :: Double )
+        placeVol    :: Vol MACRO_CURRENCY = Vol   $ realToFrac ((read $ args !! 4) :: Double )
         xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 5) :: Double )
         xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 6) :: Double )
 
@@ -94,8 +103,8 @@ main = do
         es2    <- fromHandlerSet handlers2
 
         triple <- case mirrorSide of
-                "ASKS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget asks slipVol placeVol) AskSide ctrlEs es1 es2
-                "BIDS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget bids slipVol placeVol) BidSide ctrlEs es1 es2
+                "ASKS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget MACRO_BUCKETSIZE asks slipVol placeVol) AskSide ctrlEs es1 es2
+                "BIDS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget MACRO_BUCKETSIZE bids slipVol placeVol) BidSide ctrlEs es1 es2
                 _      -> error $ "Argument 'mirrorSide' must be either ASKS or BIDS (in all caps)."
 
         let ctrlAs' = fst3 <$> triple
@@ -111,11 +120,11 @@ main = do
 
         reactimate $
             fmap (logAndQueueAdvice output1)
-            (esAdv1 :: Event (StrategyAdvice (Action USD BTC)))
+            (esAdv1 :: Event (StrategyAdvice (Action USD MACRO_CURRENCY)))
 
         reactimate $
             fmap (logAndQueueAdvice output2)
-            (esAdv2 :: Event (StrategyAdvice (Action BRL BTC)))
+            (esAdv2 :: Event (StrategyAdvice (Action BRL MACRO_CURRENCY)))
 
     activate network
 
