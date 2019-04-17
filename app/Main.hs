@@ -34,8 +34,8 @@ import Market.Interface
 import Reactive.Banana.Combinators  (never, filterE) -- FIX ME! remove me!
 import Market.Coins
 
-import Coinbene.Connector
-import Coinbene                     (Coinbene(..), API_ID(..), API_KEY(..), Verbosity(..)) -- FIX ME! Remove me.
+import Coinbene.Connector           (Coinbene(..), API_ID(..), API_KEY(..), Verbosity(..), getCoinbeneConfig, coinbeneInit)
+-- import Coinbene                     (Coinbene(..), API_ID(..), API_KEY(..), Verbosity(..)) -- FIX ME! Remove me.
 
 {-
 This program uses multiple threads with an event network using our "push-pull" model.
