@@ -8,7 +8,7 @@ packages:
 # because of dep/market-interface (and for the tests)
 - location:
     git: https://github.com/dimitri-xyz/market-model
-    commit: 6bc68484bacddf1f8bd176583ed2813e5459b7f1
+    commit: ab1674058ee39e556a7fcade4de260ff1bdb503a
   extra-dep: true
 
 - location:

@@ -7,7 +7,7 @@
 #define D_USAGE_MSG     "Usage: frt-eth pollRate mirrorSide maxExposure slipVol placeVol USDT-SellPrice USDT-BuyPrice"
 
 #elif TETHER
-#define D_CURRENCY      USD
+#define D_CURRENCY      USDT
 #define D_BUCKETSIZE    undefined
 #define D_USAGE_MSG     "Usage: frt-usdt pollRate mirrorSide maxExposure slipVol(ignored) placeVol USDT-SellPrice USDT-BuyPrice"
 
@@ -150,7 +150,7 @@ main = do
 #ifndef TETHER
         reactimate $
             fmap (logAndQueueAdvice output1)
-            (esAdv1 :: Event (StrategyAdvice (Action USD D_CURRENCY)))
+            (esAdv1 :: Event (StrategyAdvice (Action USDT D_CURRENCY)))
 #endif
 
         reactimate $
