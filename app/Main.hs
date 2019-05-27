@@ -25,7 +25,7 @@ import Data.Tuple.Extra             (fst3, snd3, thd3)
 
 import Control.Concurrent           (threadDelay)
 import Control.Concurrent.Async
-import Control.Monad                (forever)
+import Control.Monad                (forever, void, when)
 import Control.Exception            (catch, IOException(..))
 import System.IO.Error              (isEOFError)
 import System.Environment
@@ -60,19 +60,15 @@ main :: IO ()
 main = do
 
     args <- getArgs
+    when (length args /= 7) $ error D_USAGE_MSG
 
-    if length args /= 7 then
-        error D_USAGE_MSG
-    else
-        return ()
-
-    let pollingInterval :: Double =                 ((read $ args !! 0) :: Double )
-        mirrorSide      :: String =                          args !! 1
+    let pollingInterval :: Double     =                    ((read $ args !! 0) :: Double )
+        mirrorSide      :: String     =                             args !! 1
         maxExposure :: Vol D_CURRENCY = Vol   $ realToFrac ((read $ args !! 2) :: Double )
         slipVol     :: Vol D_CURRENCY = Vol   $ realToFrac ((read $ args !! 3) :: Double )
         placeVol    :: Vol D_CURRENCY = Vol   $ realToFrac ((read $ args !! 4) :: Double )
-        xSellRate :: Price BRL = Price $ realToFrac ((read $ args !! 5) :: Double )
-        xBuyRate  :: Price BRL = Price $ realToFrac ((read $ args !! 6) :: Double )
+        xSellRate   :: Price BRL      = Price $ realToFrac ((read $ args !! 5) :: Double )
+        xBuyRate    :: Price BRL      = Price $ realToFrac ((read $ args !! 6) :: Double )
 
     putStrLn $  "Poll interval:  " <> show pollingInterval
              <> "\nMirror side:  " <> mirrorSide
@@ -121,7 +117,7 @@ main = do
         triple <- case mirrorSide of
                 "ASKS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget D_BUCKETSIZE asks slipVol placeVol) AskSide ctrlEs es1 es2
                 "BIDS" -> mirrorStrategy3 xSellRate xBuyRate maxExposure (defineTarget D_BUCKETSIZE bids slipVol placeVol) BidSide ctrlEs es1 es2
-                _      -> error $ "Argument 'mirrorSide' must be either ASKS or BIDS (in all caps)."
+                _      -> error "Argument 'mirrorSide' must be either ASKS or BIDS (in all caps)."
 
         let ctrlAs' = fst3 <$> triple
             esAdv1' = snd3 <$> triple
@@ -145,7 +141,7 @@ main = do
 
         reactimate $
             fmap (logAndQueueControl ctrlOutput)
-            (ctrlAs :: Event (ControlAction))
+            (ctrlAs :: Event ControlAction)
 
 #ifndef TETHER
         reactimate $
@@ -217,7 +213,7 @@ main = do
 
 --------------------------------------------------------------------------------
 keyboardWait :: IO ()
-keyboardWait = getLine >> return () -- wait for <ENTER> to be pressed
+keyboardWait = void getLine  -- wait for <ENTER> to be pressed
 
 -- this runs until users presses <ENTER> key or (if we have no stdin, as inside a cron job) a timeout interval
 shutdownTrigger :: IO ()
@@ -226,7 +222,7 @@ shutdownTrigger = catch keyboardWait
         let err = show (e :: IOException)
         if isEOFError e
             then do
-                putStrLn ("Warning: isEOFError exception thrown on keyboard input. Running for 1 hour 55 mins. Ctrl-C to abort.")
+                putStrLn "Warning: isEOFError exception thrown on keyboard input. Running for 1 hour 55 mins. Ctrl-C to abort."
                 threadDelay (115 * 60 * 1000000)
             else
                 putStrLn ("Error: Aborting execution. Unknown exception thrown on keyboard input:" <> err )
